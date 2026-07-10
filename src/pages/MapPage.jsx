@@ -100,7 +100,7 @@ export default function MapPage() {
   if (loading) return <LoadingScreen title="กำลังเปิดแผนที่" subtitle="รวบรวมข้อมูลจาก 77 จังหวัด" />;
 
   return (
-    <div className="map-page">
+    <div className={`map-page map-page--${metric}`}>
       <div className="map-toolbar">
         <div>
           <span className="section-label">ภาพรวมทั่วประเทศ</span>
@@ -111,7 +111,7 @@ export default function MapPage() {
           {Object.entries(metricOptions).map(([key, option]) => {
             const Icon = option.icon;
             return (
-              <button className={metric === key ? 'is-active' : ''} key={key} onClick={() => setMetric(key)} type="button">
+              <button className={metric === key ? 'is-active' : ''} data-metric={key} key={key} onClick={() => setMetric(key)} type="button">
                 <Icon aria-hidden="true" size={16} /> {option.label}
               </button>
             );

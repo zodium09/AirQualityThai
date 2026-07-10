@@ -104,9 +104,9 @@ function WeatherGlyph({ code, isDay = true, rain = 0, size = 24 }) {
   return <CloudSun {...common} />;
 }
 
-function Metric({ icon: Icon, label, value, detail }) {
+function Metric({ icon: Icon, label, value, detail, tone }) {
   return (
-    <div className="metric">
+    <div className={`metric metric--${tone}`}>
       <span className="metric__icon">{createElement(Icon, { 'aria-hidden': true, size: 19 })}</span>
       <div>
         <span className="metric__label">{label}</span>
@@ -223,6 +223,11 @@ export default function Dashboard() {
         </section>
 
         <section className={`today-hero today-hero--${summary.tone}`}>
+          <div aria-hidden="true" className="weather-scene">
+            <span className="weather-scene__sun"><Sun size={30} strokeWidth={1.8} /></span>
+            <span className="weather-scene__cloud"><Cloud size={42} strokeWidth={1.7} /></span>
+            <span className="weather-scene__wind"><Wind size={27} strokeWidth={1.8} /></span>
+          </div>
           <div className="today-hero__main">
             <div className="data-line">
               <span className={`status-dot ${sourceIsFallback ? 'is-fallback' : 'is-live'}`} />
@@ -251,7 +256,7 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section aria-labelledby="conditions-title" className="section-block">
+        <section aria-labelledby="conditions-title" className="section-block section-block--conditions">
           <div className="section-heading">
             <div>
               <span className="section-label">สถานการณ์สำคัญ</span>
@@ -272,15 +277,15 @@ export default function Dashboard() {
             </article>
 
             <div className="metrics-panel">
-              <Metric detail={current?.humidity >= 75 ? 'ค่อนข้างชื้น' : 'อยู่ในเกณฑ์ทั่วไป'} icon={Droplets} label="ความชื้น" value={`${Math.round(current?.humidity || 0)}%`} />
-              <Metric detail={current?.windSpeed >= 20 ? 'ลมค่อนข้างแรง' : 'ลมไม่แรง'} icon={Wind} label="ลม" value={`${Math.round(current?.windSpeed || 0)} กม./ชม.`} />
-              <Metric detail={current?.uv >= 8 ? 'ควรหลบแดด' : current?.uv >= 3 ? 'ทากันแดด' : 'รังสีต่ำ'} icon={Sun} label="รังสี UV" value={Math.round(current?.uv || 0)} />
-              <Metric detail="ความกดอากาศ" icon={Gauge} label="ความกด" value={`${Math.round(current?.pressure || 0)} hPa`} />
+              <Metric detail={current?.humidity >= 75 ? 'ค่อนข้างชื้น' : 'อยู่ในเกณฑ์ทั่วไป'} icon={Droplets} label="ความชื้น" tone="humidity" value={`${Math.round(current?.humidity || 0)}%`} />
+              <Metric detail={current?.windSpeed >= 20 ? 'ลมค่อนข้างแรง' : 'ลมไม่แรง'} icon={Wind} label="ลม" tone="wind" value={`${Math.round(current?.windSpeed || 0)} กม./ชม.`} />
+              <Metric detail={current?.uv >= 8 ? 'ควรหลบแดด' : current?.uv >= 3 ? 'ทากันแดด' : 'รังสีต่ำ'} icon={Sun} label="รังสี UV" tone="sun" value={Math.round(current?.uv || 0)} />
+              <Metric detail="ความกดอากาศ" icon={Gauge} label="ความกด" tone="pressure" value={`${Math.round(current?.pressure || 0)} hPa`} />
             </div>
           </div>
         </section>
 
-        <section aria-labelledby="hourly-title" className="section-block">
+        <section aria-labelledby="hourly-title" className="section-block section-block--hourly">
           <div className="section-heading">
             <div>
               <span className="section-label">12 ชั่วโมงข้างหน้า</span>
@@ -290,17 +295,18 @@ export default function Dashboard() {
           </div>
           <div className="hourly-strip" role="list">
             {hours.map((hour, index) => (
-              <div className={`hour-cell${hour.rain >= 60 ? ' is-rainy' : ''}`} key={hour.time} role="listitem">
+              <div className={`hour-cell${hour.rain >= 60 ? ' is-rainy' : ''}`} key={hour.time} role="listitem" style={{ '--rain-level': `${hour.rain}%` }}>
                 <span>{formatHour(hour.time, index)}</span>
                 <WeatherGlyph code={hour.code} rain={hour.rain} size={21} />
                 <strong>{hour.temp}°</strong>
                 <small>{hour.rain}%</small>
+                <span aria-hidden="true" className="hour-cell__rainbar"><i /></span>
               </div>
             ))}
           </div>
         </section>
 
-        <section aria-labelledby="weekly-title" className="section-block">
+        <section aria-labelledby="weekly-title" className="section-block section-block--weekly">
           <div className="section-heading">
             <div>
               <span className="section-label">มองล่วงหน้า</span>

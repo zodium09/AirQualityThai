@@ -185,6 +185,7 @@ export default function NewsPage() {
 
         {priority ? (
           <section className={`priority-alert priority-alert--${priority.severity}`}>
+            <span aria-hidden="true" className="priority-alert__symbol"><AlertTriangle size={26} /></span>
             <div className="priority-alert__label"><AlertTriangle aria-hidden="true" size={18} /> เรื่องที่ควรดูก่อน</div>
             <h2>{priority.title}</h2>
             <p>{priority.summary}</p>
@@ -241,7 +242,7 @@ export default function NewsPage() {
           ) : (
             <div className="event-list">
               {filtered.map((item) => (
-                <article className="event-row" key={item.id}>
+                <article className={`event-row event-row--${item.severity}`} key={item.id}>
                   <div className="event-row__severity"><SeverityBadge severity={item.severity} /></div>
                   <div className="event-row__body">
                     <h3>{item.title}</h3>
