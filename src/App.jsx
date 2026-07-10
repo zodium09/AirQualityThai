@@ -1,8 +1,9 @@
-import React, { Suspense, lazy } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import React, { lazy, Suspense } from 'react';
+import { RefreshCw, ShieldAlert } from 'lucide-react';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
-import { WeatherProvider } from './context/WeatherContext';
 import LoadingScreen from './components/LoadingScreen';
+import { WeatherProvider } from './context/WeatherContext';
 
 const CHUNK_RELOAD_KEY = 'air4thai-chunk-reload-attempted';
 
@@ -11,21 +12,20 @@ function isChunkLoadError(error) {
 }
 
 async function recoverFromStaleChunk() {
-  if (typeof window === 'undefined') return false;
-  if (window.sessionStorage.getItem(CHUNK_RELOAD_KEY) === '1') return false;
+  if (typeof window === 'undefined' || window.sessionStorage.getItem(CHUNK_RELOAD_KEY) === '1') return false;
   window.sessionStorage.setItem(CHUNK_RELOAD_KEY, '1');
 
   try {
     if ('caches' in window) {
       const names = await window.caches.keys();
-      await Promise.all(names.filter((name) => /workbox|precache|local-code|vite|air4thai/i.test(name)).map((name) => window.caches.delete(name)));
+      await Promise.all(names.filter((name) => /workbox|precache|air4thai/i.test(name)).map((name) => window.caches.delete(name)));
     }
     if ('serviceWorker' in navigator) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map((reg) => reg.update().catch(() => null)));
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.update().catch(() => null)));
     }
   } catch {
-    // Reload is still the safest recovery path when a mobile browser has stale chunks.
+    // Reload still gives the app the best chance to recover from an old mobile chunk.
   }
 
   window.location.reload();
@@ -34,21 +34,14 @@ async function recoverFromStaleChunk() {
 
 function lazyWithRetry(loader) {
   return lazy(() => loader().catch(async (error) => {
-    if (isChunkLoadError(error) && await recoverFromStaleChunk()) {
-      return new Promise(() => {});
-    }
+    if (isChunkLoadError(error) && await recoverFromStaleChunk()) return new Promise(() => {});
     throw error;
   }));
 }
 
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
 const MapPage = lazyWithRetry(() => import('./pages/MapPage'));
-const AIPage = lazyWithRetry(() => import('./pages/AIPage'));
 const NewsPage = lazyWithRetry(() => import('./pages/NewsPage'));
-
-function RouteFallback() {
-  return <LoadingScreen title="กำลังเปิดหน้า" subtitle="เตรียมข้อมูลล่าสุดให้พร้อมแสดงผล" />;
-}
 
 class RouteErrorBoundary extends React.Component {
   constructor(props) {
@@ -61,7 +54,7 @@ class RouteErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error) {
-    console.error('Route chunk failed:', error);
+    console.error('Route failed:', error);
     if (isChunkLoadError(error)) recoverFromStaleChunk();
   }
 
@@ -69,19 +62,17 @@ class RouteErrorBoundary extends React.Component {
     if (!this.state.hasError) return this.props.children;
 
     return (
-      <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', padding: '24px', background: 'linear-gradient(135deg, #f8fafc, #e0f2fe)', fontFamily: 'Kanit, sans-serif' }}>
-        <div style={{ width: 'min(460px, 100%)', background: '#fff', border: '1px solid rgba(14,165,233,0.22)', borderRadius: '18px', padding: '24px', boxShadow: '0 12px 32px rgba(15,23,42,0.12)', textAlign: 'center' }}>
-          <div style={{ fontSize: '2rem', marginBottom: '10px' }}>⚠️</div>
-          <h1 style={{ margin: 0, color: '#0f172a', fontSize: '1.25rem', fontWeight: 950 }}>โหลดหน้าไม่สำเร็จ</h1>
-          <p style={{ margin: '10px 0 18px', color: '#475569', lineHeight: 1.65, fontSize: '0.92rem' }}>
-            ไฟล์หน้าจอบางส่วนอาจยังโหลดไม่ครบ ลองโหลดใหม่อีกครั้ง
-          </p>
-          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button type="button" onClick={() => window.location.reload()} style={{ border: 0, borderRadius: '999px', background: '#0ea5e9', color: '#fff', padding: '10px 16px', fontWeight: 900, cursor: 'pointer' }}>
-              โหลดใหม่
+      <div className="route-error" role="alert">
+        <div className="route-error__panel">
+          <span className="route-error__icon"><ShieldAlert aria-hidden="true" size={24} /></span>
+          <h1>เปิดหน้านี้ไม่สำเร็จ</h1>
+          <p>การเชื่อมต่ออาจสะดุด หรือแอปมีเวอร์ชันใหม่ ลองโหลดอีกครั้ง</p>
+          <div className="button-row">
+            <button className="button button--primary" onClick={() => window.location.reload()} type="button">
+              <RefreshCw aria-hidden="true" size={17} /> โหลดอีกครั้ง
             </button>
-            <button type="button" onClick={() => { window.location.href = '/'; }} style={{ border: '1px solid rgba(14,165,233,0.35)', borderRadius: '999px', background: '#fff', color: '#0369a1', padding: '10px 16px', fontWeight: 900, cursor: 'pointer' }}>
-              กลับหน้าหลัก
+            <button className="button button--secondary" onClick={() => { window.location.href = '/'; }} type="button">
+              กลับหน้าวันนี้
             </button>
           </div>
         </div>
@@ -93,26 +84,25 @@ class RouteErrorBoundary extends React.Component {
 function LazyRoute({ children }) {
   return (
     <RouteErrorBoundary>
-      <Suspense fallback={<RouteFallback />}>
+      <Suspense fallback={<LoadingScreen title="กำลังเปิดหน้า" subtitle="เตรียมข้อมูลล่าสุด" />}>
         {children}
       </Suspense>
     </RouteErrorBoundary>
   );
 }
 
-function App() {
+export default function App() {
   return (
     <WeatherProvider>
       <Routes>
-        <Route path="/" element={<Layout />}>
+        <Route element={<Layout />} path="/">
           <Route index element={<LazyRoute><Dashboard /></LazyRoute>} />
-          <Route path="map" element={<LazyRoute><MapPage /></LazyRoute>} />
-          <Route path="ai" element={<LazyRoute><AIPage /></LazyRoute>} />
-          <Route path="news" element={<LazyRoute><NewsPage /></LazyRoute>} />
+          <Route element={<LazyRoute><MapPage /></LazyRoute>} path="map" />
+          <Route element={<LazyRoute><NewsPage /></LazyRoute>} path="news" />
+          <Route element={<Navigate replace to="/" />} path="ai" />
+          <Route element={<Navigate replace to="/" />} path="*" />
         </Route>
       </Routes>
     </WeatherProvider>
   );
 }
-
-export default App;

@@ -120,7 +120,6 @@ export default defineConfig(({ mode }) => {
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,svg,webmanifest}'],
         globIgnores: [
-          '**/AIPage-*.js',
           '**/MapPage-*.js',
           '**/NewsPage-*.js',
           '**/apple-touch-icon.png',
@@ -131,13 +130,13 @@ export default defineConfig(({ mode }) => {
         ],
       },
       manifest: {
-        name: 'AirQuality ไทย — ตรวจสอบคุณภาพอากาศ',
-        short_name: 'AirQuality Thai',
+        name: 'อากาศไทย — รู้ก่อน วางแผนได้',
+        short_name: 'อากาศไทย',
         description:
           'ตรวจสอบคุณภาพอากาศ ฝุ่น PM2.5 สภาพอากาศ และเตือนภัยล่วงหน้าของประเทศไทยแบบเรียลไทม์',
         lang: 'th',
-        theme_color: '#0ea5e9',
-        background_color: '#0f172a',
+        theme_color: '#0788a7',
+        background_color: '#f4f8fa',
         display: 'standalone',
         orientation: 'portrait-primary',
         scope: '/',

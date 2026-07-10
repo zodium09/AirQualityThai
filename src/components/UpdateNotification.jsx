@@ -1,107 +1,44 @@
-import React, { useState, useEffect } from 'react';
+import { RefreshCw, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
-/**
- * แบนเนอร์แจ้งเมื่อมี Service Worker update ใหม่
- * ใช้ useRegisterSW จาก vite-plugin-pwa
- */
 export default function UpdateNotification() {
-  const [swReg, setSwReg] = useState(null);
-
-  const {
-    needRefresh: [needRefresh, setNeedRefresh],
-    updateServiceWorker,
-  } = useRegisterSW({
-    onRegistered(r) {
-      if (r) setSwReg(r);
+  const [registration, setRegistration] = useState(null);
+  const { needRefresh: [needRefresh, setNeedRefresh], updateServiceWorker } = useRegisterSW({
+    onRegistered(value) {
+      if (value) setRegistration(value);
     },
     onRegisterError(error) {
-      console.log('[PWA] SW registration error:', error);
+      console.warn('[PWA] registration failed:', error);
     },
   });
 
-  // ตรวจสอบ SW update ทุก 60 วิ และเมื่อ app กลับมา foreground
   useEffect(() => {
-    if (!swReg) return;
-
-    const interval = setInterval(() => swReg.update(), 60 * 1000);
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') swReg.update();
+    if (!registration) return undefined;
+    const interval = window.setInterval(() => registration.update(), 60 * 1000);
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') registration.update();
     };
-    document.addEventListener('visibilitychange', onVisible);
-
+    document.addEventListener('visibilitychange', handleVisible);
     return () => {
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisible);
     };
-  }, [swReg]);
-
-  const close = () => setNeedRefresh(false);
+  }, [registration]);
 
   if (!needRefresh) return null;
 
-  return (
-    <div style={{
-      position: 'fixed',
-      top: '16px',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      zIndex: 99999,
-      background: 'linear-gradient(135deg, #1e293b, #0c2a3e)',
-      border: '1px solid rgba(14,165,233,0.5)',
-      borderRadius: '16px',
-      padding: '14px 20px',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(14,165,233,0.15)',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '14px',
-      minWidth: '300px',
-      maxWidth: '90vw',
-      animation: 'slideDown 0.4s cubic-bezier(0.34,1.56,0.64,1)',
-    }}>
-      <span style={{ fontSize: '1.4rem' }}>🔄</span>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontFamily: 'Kanit, sans-serif', fontWeight: 700, color: '#f8fafc', fontSize: '0.9rem' }}>
-          มีเวอร์ชันใหม่พร้อมใช้งาน
-        </div>
-        <div style={{ fontFamily: 'Kanit, sans-serif', color: '#94a3b8', fontSize: '0.75rem' }}>
-          กดอัปเดตเพื่อรับฟีเจอร์ล่าสุด
-        </div>
-      </div>
-      <button
-        onClick={() => {
-          // รอให้ SW ใหม่ take control ก่อน แล้วค่อย reload
-          navigator.serviceWorker.addEventListener('controllerchange', () => {
-            window.location.reload();
-          });
-          updateServiceWorker(false);
-        }}
-        style={{
-          background: 'linear-gradient(135deg, #0ea5e9, #0284c7)',
-          border: 'none', borderRadius: '10px',
-          color: '#fff', fontFamily: 'Kanit, sans-serif', fontWeight: 700,
-          fontSize: '0.82rem', padding: '8px 16px', cursor: 'pointer',
-          whiteSpace: 'nowrap', boxShadow: '0 2px 8px rgba(14,165,233,0.35)',
-        }}
-      >
-        อัปเดต
-      </button>
-      <button
-        onClick={close}
-        style={{
-          background: 'rgba(255,255,255,0.08)', border: 'none', color: '#94a3b8',
-          borderRadius: '50%', width: '26px', height: '26px', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem',
-          flexShrink: 0,
-        }}
-      >✕</button>
+  const update = () => {
+    navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload(), { once: true });
+    updateServiceWorker(false);
+  };
 
-      <style>{`
-        @keyframes slideDown {
-          from { transform: translateX(-50%) translateY(-40px); opacity: 0; }
-          to { transform: translateX(-50%) translateY(0); opacity: 1; }
-        }
-      `}</style>
-    </div>
+  return (
+    <aside aria-live="polite" className="update-toast" role="status">
+      <span className="install-toast__icon"><RefreshCw aria-hidden="true" size={19} /></span>
+      <div><strong>มีเวอร์ชันใหม่</strong><p>อัปเดตเพื่อใช้ข้อมูลและหน้าจอล่าสุด</p></div>
+      <button className="button button--primary button--compact" onClick={update} type="button">อัปเดตแอป</button>
+      <button aria-label="ปิดข้อความอัปเดต" className="toast-close" onClick={() => setNeedRefresh(false)} type="button"><X size={17} /></button>
+    </aside>
   );
 }

@@ -1,12 +1,12 @@
 {
-  "short_name": "AirQuality Thai",
-  "name": "AirQuality Thai",
+  "short_name": "อากาศไทย",
+  "name": "อากาศไทย — รู้ก่อน วางแผนได้",
   "icons": [
     { "src": "favicon.svg", "type": "image/svg+xml", "sizes": "192x192" },
     { "src": "favicon.svg", "type": "image/svg+xml", "sizes": "512x512" }
   ],
   "start_url": "/?source=pwa",
   "display": "standalone",
-  "theme_color": "#0ea5e9",
-  "background_color": "#0f172a"
+  "theme_color": "#0788a7",
+  "background_color": "#f4f8fa"
 }
