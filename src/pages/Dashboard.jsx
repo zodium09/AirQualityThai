@@ -2,16 +2,25 @@ import { createElement, useContext, useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
   CalendarDays,
+  CarFront,
+  ChevronDown,
   Cloud,
   CloudRain,
   CloudSun,
   Droplets,
+  Dumbbell,
   Gauge,
   LocateFixed,
   Map,
+  Moon,
   Navigation,
+  RadioTower,
   ShieldCheck,
+  Shirt,
+  Sprout,
   Sun,
+  Sunrise,
+  Sunset,
   ThermometerSun,
   Umbrella,
   Wind,
@@ -22,6 +31,7 @@ import { WeatherContext } from '../context/WeatherContext';
 import { useWeatherData } from '../hooks/useWeatherData';
 
 const LOCATION_KEY = 'air4thai.selectedProvince';
+const DISTRICT_KEY = 'air4thai.selectedDistrict';
 
 const finiteOrNull = (value) => {
   const parsed = Number(value);
@@ -46,6 +56,82 @@ function formatDay(value, index) {
 function formatHour(value, index) {
   if (index === 0) return 'ตอนนี้';
   return new Intl.DateTimeFormat('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+}
+
+function formatClock(value) {
+  if (!value || Number.isNaN(new Date(value).getTime())) return '–';
+  return new Intl.DateTimeFormat('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+}
+
+function getDaylight(current) {
+  const rise = new Date(current?.sunrise || 0);
+  const set = new Date(current?.sunset || 0);
+  const now = new Date();
+  if (Number.isNaN(rise.getTime()) || Number.isNaN(set.getTime()) || set <= rise) {
+    return { progress: 0.5, isDay: true, rise: '–', set: '–' };
+  }
+  const isDay = now >= rise && now <= set;
+  if (isDay) {
+    return { progress: Math.max(0, Math.min(1, (now - rise) / (set - rise))), isDay, rise: formatClock(rise), set: formatClock(set) };
+  }
+  const nightStart = now < rise ? new Date(set.getTime() - 24 * 60 * 60 * 1000) : set;
+  const nightEnd = now < rise ? rise : new Date(rise.getTime() + 24 * 60 * 60 * 1000);
+  const progress = Math.max(0, Math.min(1, (now - nightStart) / (nightEnd - nightStart)));
+  return { progress, isDay, rise: formatClock(rise), set: formatClock(set) };
+}
+
+function getActivityAdvice(current, pm25) {
+  const rain = Number(current?.rainProb || 0);
+  const heat = Number(current?.feelsLike || current?.temp || 0);
+  const wind = Number(current?.windSpeed || 0);
+  const dust = Number(pm25 || 0);
+  const clamp = (value) => Math.max(0, Math.min(10, value));
+  const describe = (score) => score >= 8 ? 'เหมาะมาก' : score >= 6 ? 'ทำได้' : score >= 4 ? 'ควรระวัง' : 'ควรเลี่ยง';
+  const tone = (score) => score >= 8 ? 'excellent' : score >= 6 ? 'good' : score >= 4 ? 'warning' : 'danger';
+  const items = [
+    {
+      title: 'ออกกำลังกาย', icon: Dumbbell,
+      score: clamp(9.5 - Math.max(0, heat - 32) * 0.45 - Math.max(0, dust - 20) * 0.08 - rain * 0.025),
+      bestTime: heat >= 35 ? 'ก่อน 09:00 หรือหลัง 18:00' : 'ช่วงเช้าหรือเย็น',
+      reason: `รู้สึก ${Math.round(heat)}° · PM2.5 ${Math.round(dust)}`,
+    },
+    {
+      title: 'เดินทาง', icon: CarFront,
+      score: clamp(9.4 - rain * 0.045 - Math.max(0, wind - 20) * 0.12),
+      bestTime: rain >= 50 ? 'ออกก่อนช่วงฝนหนัก' : 'เดินทางได้ตามแผน',
+      reason: `ฝน ${Math.round(rain)}% · ลม ${Math.round(wind)} กม./ชม.`,
+    },
+    {
+      title: 'ซักผ้า', icon: Shirt,
+      score: clamp(9.6 - rain * 0.075 + (heat >= 32 ? 0.5 : 0)),
+      bestTime: rain >= 45 ? 'ควรรอช่วงฝนลด' : 'ก่อน 15:00',
+      reason: `โอกาสฝน ${Math.round(rain)}%`,
+    },
+    {
+      title: 'ดูแลต้นไม้', icon: Sprout,
+      score: clamp(rain >= 70 ? 5 : 8.6 - rain * 0.025 + (heat >= 35 ? 0.5 : 0)),
+      bestTime: rain >= 60 ? 'รอดูฝนก่อนรดน้ำ' : 'ช่วง 17:00-19:00',
+      reason: heat >= 35 ? 'อากาศร้อน น้ำระเหยเร็ว' : 'รดช่วงเย็นลดการระเหย',
+    },
+  ].map((item) => ({ ...item, label: describe(item.score), tone: tone(item.score) }));
+  return items.sort((a, b) => b.score - a.score).slice(0, 3);
+}
+
+function ActivityItem({ item }) {
+  return (
+    <article className={`activity-item activity-item--${item.tone}`}>
+      <span className="activity-item__icon">{createElement(item.icon, { 'aria-hidden': true, size: 20 })}</span>
+      <div className="activity-item__body">
+        <div><strong>{item.title}</strong><span>{item.label}</span></div>
+        <p>{item.reason}</p>
+        <small>{item.bestTime}</small>
+      </div>
+      <div className="activity-item__score" aria-label={`คะแนน ${item.score.toFixed(1)} จาก 10`}>
+        <b>{item.score.toFixed(1)}</b><span>/10</span>
+        <i><em style={{ width: `${item.score * 10}%` }} /></i>
+      </div>
+    </article>
+  );
 }
 
 function getAirStatus(pm25) {
@@ -118,14 +204,44 @@ function Metric({ icon: Icon, label, value, detail, tone }) {
 }
 
 export default function Dashboard() {
-  const { lastUpdated, stations, weatherMeta } = useContext(WeatherContext);
+  const { amphoeData, lastUpdated, stations, weatherMeta } = useContext(WeatherContext);
   const { weatherData, loadingWeather, fetchWeatherByCoords } = useWeatherData();
   const [selectedProvince, setSelectedProvince] = useState(() => localStorage.getItem(LOCATION_KEY) || 'กรุงเทพมหานคร');
   const [locationLabel, setLocationLabel] = useState(() => localStorage.getItem(LOCATION_KEY) || 'กรุงเทพมหานคร');
+  const [selectedDistrict, setSelectedDistrict] = useState(() => localStorage.getItem(DISTRICT_KEY) || '');
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState('');
+  const [geoDistricts, setGeoDistricts] = useState([]);
+  const [radarOpen, setRadarOpen] = useState(false);
+  const [radarLoaded, setRadarLoaded] = useState(false);
 
   const sortedStations = useMemo(() => [...(stations || [])].sort((a, b) => a.areaTH.localeCompare(b.areaTH, 'th')), [stations]);
+  const districts = useMemo(() => {
+    const provinceKey = cleanProvinceName(selectedProvince);
+    const provinces = amphoeData?.provinces || {};
+    const province = provinces[provinceKey]
+      || provinces[selectedProvince]
+      || Object.entries(provinces).find(([name]) => cleanProvinceName(name) === provinceKey)?.[1];
+    const tmdDistricts = (province?.amphoes || []).map((item) => ({
+      name: String(item.n || item.name || '').trim(),
+      lat: finiteOrNull(item.lat),
+      lon: finiteOrNull(item.lon ?? item.lng ?? item.long),
+    })).filter((item) => item.name);
+    if (tmdDistricts.length) return tmdDistricts.sort((a, b) => a.name.localeCompare(b.name, 'th'));
+
+    const fallbackProvince = geoDistricts.find((item) => cleanProvinceName(item.name_th || item.name || '') === provinceKey);
+    return (fallbackProvince?.districts || []).map((item) => ({
+      name: String(item.name_th || item.name || '').trim(),
+      lat: null,
+      lon: null,
+    })).filter((item) => item.name).sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  }, [amphoeData, geoDistricts, selectedProvince]);
+
+  const radarSrc = useMemo(() => {
+    const lat = Number(weatherData?.coords?.lat || 13.75);
+    const lon = Number(weatherData?.coords?.lon || 100.5);
+    return `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&detailLat=${lat}&detailLon=${lon}&zoom=8&level=surface&overlay=radar&product=radar&menu=&message=true&marker=true`;
+  }, [weatherData?.coords?.lat, weatherData?.coords?.lon]);
 
   useEffect(() => {
     const station = sortedStations.find((item) => cleanProvinceName(item.areaTH) === cleanProvinceName(selectedProvince))
@@ -135,12 +251,68 @@ export default function Dashboard() {
     setLocationLabel(cleanProvinceName(station.areaTH));
   }, [fetchWeatherByCoords, selectedProvince, sortedStations]);
 
+  useEffect(() => {
+    if (amphoeData?.provinces || geoDistricts.length) return undefined;
+    const controller = new AbortController();
+    fetch('/thai_geo.json', { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error(`Geo ${response.status}`)))
+      .then((data) => setGeoDistricts(Array.isArray(data) ? data : (data?.data || [])))
+      .catch((error) => {
+        if (error.name !== 'AbortError') console.warn('District fallback unavailable:', error.message);
+      });
+    return () => controller.abort();
+  }, [amphoeData, geoDistricts.length]);
+
+  useEffect(() => {
+    if (!selectedDistrict) return;
+    const district = districts.find((item) => item.name === selectedDistrict);
+    if (!district || !Number.isFinite(district.lat) || !Number.isFinite(district.lon)) return;
+    fetchWeatherByCoords(district.lat, district.lon);
+    setLocationLabel(`${district.name}, ${cleanProvinceName(selectedProvince)}`);
+  }, [districts, fetchWeatherByCoords, selectedDistrict, selectedProvince]);
+
+  useEffect(() => {
+    setRadarLoaded(false);
+  }, [radarSrc]);
+
   const handleProvinceChange = (event) => {
     const next = event.target.value;
     setSelectedProvince(next);
     setLocationLabel(cleanProvinceName(next));
     setLocationError('');
+    setSelectedDistrict('');
     localStorage.setItem(LOCATION_KEY, next);
+    localStorage.removeItem(DISTRICT_KEY);
+  };
+
+  const handleDistrictChange = async (event) => {
+    const next = event.target.value;
+    setSelectedDistrict(next);
+    setLocationError('');
+    if (next) localStorage.setItem(DISTRICT_KEY, next);
+    else localStorage.removeItem(DISTRICT_KEY);
+    if (!next) {
+      const station = sortedStations.find((item) => cleanProvinceName(item.areaTH) === cleanProvinceName(selectedProvince));
+      if (station) fetchWeatherByCoords(Number(station.lat), Number(station.long));
+      setLocationLabel(cleanProvinceName(selectedProvince));
+      return;
+    }
+
+    setLocationLabel(`${next}, ${cleanProvinceName(selectedProvince)}`);
+    const district = districts.find((item) => item.name === next);
+    if (Number.isFinite(district?.lat) && Number.isFinite(district?.lon)) return;
+
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${next} ${cleanProvinceName(selectedProvince)} ประเทศไทย`)}&limit=1`, { headers: { Accept: 'application/json' } });
+      if (!response.ok) throw new Error(`ค้นหาพิกัด ${response.status}`);
+      const results = await response.json();
+      const lat = Number(results?.[0]?.lat);
+      const lon = Number(results?.[0]?.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error('ไม่พบพิกัด');
+      fetchWeatherByCoords(lat, lon);
+    } catch {
+      setLocationError('เลือกอำเภอแล้ว แต่ยังหาพิกัดไม่ได้ ระบบจะแสดงข้อมูลระดับจังหวัดแทน');
+    }
   };
 
   const handleUseLocation = () => {
@@ -154,6 +326,7 @@ export default function Dashboard() {
       ({ coords }) => {
         fetchWeatherByCoords(coords.latitude, coords.longitude);
         setLocationLabel('ตำแหน่งปัจจุบัน');
+        setSelectedDistrict('');
         setLocating(false);
       },
       () => {
@@ -172,6 +345,8 @@ export default function Dashboard() {
   const pm25 = finiteOrNull(current?.pm25);
   const air = getAirStatus(pm25);
   const summary = getWeatherSummary(current, pm25);
+  const activities = getActivityAdvice(current, pm25);
+  const daylight = getDaylight(current);
   const SummaryIcon = summary.icon;
   const now = Date.now();
   const firstHour = Math.max(0, hourly?.time?.findIndex((time) => new Date(time).getTime() >= now - 30 * 60 * 1000) || 0);
@@ -215,6 +390,15 @@ export default function Dashboard() {
                 ))}
               </select>
             </label>
+            {districts.length > 0 && (
+              <label className="select-field select-field--district">
+                <span className="sr-only">เลือกอำเภอหรือเขต</span>
+                <select onChange={handleDistrictChange} value={selectedDistrict}>
+                  <option value="">ทั้งจังหวัด</option>
+                  {districts.map((district) => <option key={district.name} value={district.name}>{district.name}</option>)}
+                </select>
+              </label>
+            )}
             <button className="button button--secondary button--compact" disabled={locating} onClick={handleUseLocation} type="button">
               <LocateFixed aria-hidden="true" size={17} /> {locating ? 'กำลังค้นหา' : 'ใช้ตำแหน่งฉัน'}
             </button>
@@ -285,6 +469,38 @@ export default function Dashboard() {
           </div>
         </section>
 
+        <section aria-labelledby="activities-title" className="section-block section-block--activities">
+          <div className="section-heading">
+            <div>
+              <span className="section-label">วางแผนวันนี้</span>
+              <h2 id="activities-title">กิจกรรมที่เหมาะตอนนี้</h2>
+            </div>
+            <span className="section-note">คะแนนจากฝน ความร้อน ฝุ่น และลม</span>
+          </div>
+          <div className="daily-planner">
+            <div className="activity-list">
+              {activities.map((item) => <ActivityItem item={item} key={item.title} />)}
+            </div>
+            <aside className="sun-cycle" aria-label="เวลาพระอาทิตย์ขึ้นและตก">
+              <div className="sun-cycle__heading">
+                <span><Sun aria-hidden="true" size={19} /></span>
+                <div><strong>จังหวะของวัน</strong><small>{daylight.isDay ? 'ช่วงกลางวัน' : 'ช่วงกลางคืน'}</small></div>
+              </div>
+              <div className="sun-cycle__visual">
+                <div className="sun-cycle__arc" />
+                <span className={`sun-cycle__orb${daylight.isDay ? '' : ' is-night'}`} style={{ left: `${daylight.progress * 100}%` }}>
+                  {daylight.isDay ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
+                </span>
+              </div>
+              <div className="sun-cycle__times">
+                <span><Sunrise aria-hidden="true" size={17} /><small>ขึ้น</small><strong>{daylight.rise}</strong></span>
+                <span><Sunset aria-hidden="true" size={17} /><small>ตก</small><strong>{daylight.set}</strong></span>
+              </div>
+              <p>ใช้ช่วงเช้าและเย็นเป็นตัวเลือกแรกเมื่ออากาศร้อนหรือรังสี UV สูง</p>
+            </aside>
+          </div>
+        </section>
+
         <section aria-labelledby="hourly-title" className="section-block section-block--hourly">
           <div className="section-heading">
             <div>
@@ -304,6 +520,26 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
+        </section>
+
+        <section className={`radar-disclosure${radarOpen ? ' is-open' : ''}`}>
+          <div className="radar-disclosure__intro">
+            <span className="radar-disclosure__icon"><RadioTower aria-hidden="true" size={22} /></span>
+            <div>
+                <span className="section-label">ดูฝนแบบเรียลไทม์</span>
+              <h2>เรดาร์ฝนใกล้ {locationLabel}</h2>
+              <p>ดูทิศทางกลุ่มฝนก่อนเดินทาง เปิดเฉพาะเมื่อใช้เพื่อช่วยประหยัดข้อมูลและเวลาโหลด</p>
+            </div>
+          </div>
+          <button aria-expanded={radarOpen} className="button button--secondary radar-disclosure__toggle" onClick={() => setRadarOpen((value) => !value)} type="button">
+            {radarOpen ? 'ซ่อนเรดาร์' : 'เปิดเรดาร์ฝน'} <ChevronDown aria-hidden="true" size={18} />
+          </button>
+          {radarOpen && (
+            <div className="radar-frame">
+              {!radarLoaded && <div className="radar-frame__loading"><RadioTower aria-hidden="true" size={22} /><span>กำลังเชื่อมต่อภาพเรดาร์</span></div>}
+              <iframe allowFullScreen loading="lazy" onLoad={() => setRadarLoaded(true)} src={radarSrc} title={`เรดาร์ฝนใกล้ ${locationLabel}`} />
+            </div>
+          )}
         </section>
 
         <section aria-labelledby="weekly-title" className="section-block section-block--weekly">
