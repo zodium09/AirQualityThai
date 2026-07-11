@@ -6,9 +6,11 @@ import {
   ExternalLink,
   Flame,
   Gauge,
+  Globe2,
   RefreshCw,
   Search,
   ShieldAlert,
+  ThermometerSun,
   Waves,
 } from 'lucide-react';
 
@@ -18,9 +20,11 @@ const categories = [
   { id: 'all', label: 'ทั้งหมด', icon: BellRing, topics: [] },
   { id: 'warning', label: 'ประกาศทางการ', icon: ShieldAlert, topics: ['warning', 'alert', 'disaster'] },
   { id: 'rain', label: 'ฝนและน้ำ', icon: CloudRain, topics: ['rain', 'flood', 'weather', 'storm'] },
+  { id: 'storm', label: 'พายุ', icon: AlertTriangle, topics: ['storm', 'cyclone', 'hurricane', 'typhoon'] },
   { id: 'earthquake', label: 'แผ่นดินไหว', icon: Waves, topics: ['earthquake'] },
   { id: 'fire', label: 'ไฟป่า', icon: Flame, topics: ['fire', 'wildfire'] },
-  { id: 'air', label: 'ฝุ่นและอากาศ', icon: Gauge, topics: ['air', 'pm25', 'climate'] },
+  { id: 'air', label: 'ฝุ่นและอากาศ', icon: Gauge, topics: ['air', 'pm25'] },
+  { id: 'climate', label: 'ภูมิอากาศโลก', icon: Globe2, topics: ['climate', 'enso', 'drought', 'volcano'] },
 ];
 
 function asArray(value) {
@@ -39,7 +43,14 @@ function readCache() {
 function normalizeItem(item, index) {
   const sources = asArray(item?.sources);
   const source = item?.source || sources[0] || 'ไม่ระบุแหล่ง';
-  const topic = String(item?.topic || item?.category || 'other').toLowerCase();
+  const topicHint = `${item?.topic || ''} ${item?.eventType || ''} ${item?.category || ''} ${item?.title || ''} ${item?.summary || item?.description || ''}`.toLowerCase();
+  const topic = /earthquake|quake|แผ่นดินไหว/.test(topicHint) ? 'earthquake'
+    : /wildfire|fire|ไฟป่า/.test(topicHint) ? 'fire'
+      : /storm|cyclone|hurricane|typhoon|พายุ/.test(topicHint) ? 'storm'
+        : /flood|น้ำท่วม/.test(topicHint) ? 'flood'
+          : /volcano|ภูเขาไฟ/.test(topicHint) ? 'volcano'
+            : /drought|ภัยแล้ง/.test(topicHint) ? 'drought'
+              : String(item?.topic || item?.eventType || item?.category || 'other').toLowerCase();
   const severity = item?.severity === 'high' ? 'high' : item?.severity === 'medium' ? 'medium' : 'low';
   const publishedAt = item?.publishedAt || item?.updatedAt || item?.at || null;
   const areas = asArray(item?.areas);
@@ -58,6 +69,7 @@ function normalizeItem(item, index) {
     area: item?.primaryArea || areas[0] || item?.area || 'ประเทศไทย',
     url: item?.url || item?.link || asArray(item?.items)[0]?.url || '',
     confidence: Number.isFinite(Number(item?.confidence)) ? Number(item.confidence) : null,
+    scope: item?.scope || 'thailand',
   };
 }
 
@@ -66,21 +78,24 @@ function collectItems(feed) {
   const thailand = feed.thailand || {};
   const global = feed.global || {};
   const candidates = [
-    ...asArray(feed.events),
-    ...asArray(feed.topStories),
     ...asArray(thailand.warnings),
     ...asArray(thailand.storms),
     ...asArray(thailand.earthquakes),
     ...asArray(thailand.disasters),
     ...asArray(thailand.ddpm),
-    ...asArray(global.alerts),
-    ...asArray(global.earthquakes),
-    ...asArray(global.eonet),
+    ...asArray(global.alerts).map((item) => ({ ...item, scope: 'global' })),
+    ...asArray(global.earthquakes).map((item) => ({ ...item, scope: 'global' })),
+    ...asArray(global.earthquakesRegional).map((item) => ({ ...item, scope: 'global' })),
+    ...asArray(global.disasters).map((item) => ({ ...item, scope: 'global' })),
+    ...asArray(global.climate).map((item) => ({ ...item, scope: 'global' })),
+    ...asArray(global.eonet).map((item) => ({ ...item, scope: 'global' })),
+    ...asArray(feed.events).map((item) => ({ ...item, scope: item.scope || 'mixed' })),
+    ...asArray(feed.topStories).map((item) => ({ ...item, scope: item.scope || 'mixed' })),
   ];
   const seen = new Set();
   return candidates.map(normalizeItem).filter((item) => {
     const relevanceText = `${item.title} ${item.summary} ${item.area} ${item.source}`;
-    const isRelevant = item.severity === 'high'
+    const isRelevant = item.scope === 'global' || item.scope === 'mixed' || item.severity === 'high'
       || /ประเทศไทย|ไทย|Thailand|TMD|ปภ\.|กรมป้องกัน|Myanmar|Laos|Cambodia|Vietnam|Malaysia|Indonesia|Philippines|China|Japan|ภูมิภาคเอเชีย|อ่าวไทย|อันดามัน/i.test(relevanceText);
     if (!isRelevant) return false;
     const key = `${item.title}|${item.source}`;
@@ -112,6 +127,7 @@ export default function NewsPage() {
   const [refreshToken, setRefreshToken] = useState(0);
   const [activeCategory, setActiveCategory] = useState('all');
   const [query, setQuery] = useState('');
+  const [enso, setEnso] = useState(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -147,6 +163,15 @@ export default function NewsPage() {
     };
   }, [refreshToken]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(refreshToken ? `/api/enso?fresh=${refreshToken}` : '/api/enso', { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => payload && setEnso(payload))
+      .catch(() => null);
+    return () => controller.abort();
+  }, [refreshToken]);
+
   const items = useMemo(() => collectItems(feed), [feed]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -160,6 +185,9 @@ export default function NewsPage() {
 
   const highCount = items.filter((item) => item.severity === 'high').length;
   const watchCount = items.filter((item) => item.severity === 'medium').length;
+  const globalCount = items.filter((item) => item.scope === 'global').length;
+  const earthquakeCount = items.filter((item) => item.topic.includes('earthquake')).length;
+  const stormCount = items.filter((item) => /storm|cyclone|hurricane|typhoon/.test(item.topic)).length;
   const priority = filtered[0];
   const generatedAt = feed?.generatedAt || feed?.fetchedAt || feed?.updatedAt;
 
@@ -182,6 +210,17 @@ export default function NewsPage() {
           <span>{error || (feed ? `อัปเดต ${formatTime(generatedAt)}` : 'กำลังเชื่อมต่อแหล่งข้อมูล')}</span>
           <span className="news-status__counts">สำคัญ {highCount} · เฝ้าระวัง {watchCount} · ทั้งหมด {items.length}</span>
         </div>
+
+        <section className="world-monitor" aria-label="ภาพรวมภัยธรรมชาติและภูมิอากาศโลก">
+          <article className="world-monitor__intro">
+            <span><Globe2 aria-hidden="true" size={21} /></span>
+            <div><small>ศูนย์ติดตามโลก</small><strong>เห็นทั้งเหตุการณ์ใกล้ตัวและสัญญาณระดับโลก</strong><p>รวมประกาศไทย แผ่นดินไหว พายุ ไฟป่า ภัยธรรมชาติ และแนวโน้ม ENSO โดยไม่ตัดเหตุการณ์ต่างประเทศออก</p></div>
+          </article>
+          <article className="world-monitor__card"><Waves aria-hidden="true" size={21} /><span>แผ่นดินไหว</span><strong>{earthquakeCount}</strong><small>เหตุการณ์ที่กำลังติดตาม</small></article>
+          <article className="world-monitor__card"><CloudRain aria-hidden="true" size={21} /><span>พายุและฝน</span><strong>{stormCount}</strong><small>เหตุการณ์ที่กำลังติดตาม</small></article>
+          <article className="world-monitor__card"><Globe2 aria-hidden="true" size={21} /><span>ทั่วโลก</span><strong>{globalCount}</strong><small>รายการจากแหล่งสากล</small></article>
+          <article className="world-monitor__enso"><ThermometerSun aria-hidden="true" size={21} /><div><span>ENSO ล่าสุด</span><strong>{enso?.alert || enso?.status || 'กำลังตรวจสอบ NOAA / IRI'}</strong><small>{enso?.summary || 'ติดตามสัญญาณ El Niño, La Niña และผลต่อฝน–ความร้อน'}</small></div></article>
+        </section>
 
         {priority ? (
           <section className={`priority-alert priority-alert--${priority.severity}`}>

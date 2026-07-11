@@ -4,9 +4,7 @@ import {
   CalendarDays,
   CarFront,
   ChevronDown,
-  Cloud,
   CloudRain,
-  CloudSun,
   Droplets,
   Dumbbell,
   Gauge,
@@ -184,10 +182,20 @@ function getWeatherSummary(current, pm25) {
 }
 
 function WeatherGlyph({ code, isDay = true, rain = 0, size = 24 }) {
-  const common = { 'aria-hidden': true, size, strokeWidth: 1.9 };
-  if (rain >= 45 || [51, 53, 55, 61, 63, 65, 80, 81, 82, 95, 96, 99].includes(Number(code))) return <CloudRain {...common} />;
-  if ([0, 1].includes(Number(code))) return isDay ? <Sun {...common} /> : <Cloud {...common} />;
-  return <CloudSun {...common} />;
+  const visual = getWeatherVisual(code, isDay, rain);
+  return <span aria-hidden="true" className="weather-emoji" style={{ fontSize: size }}>{visual.emoji}</span>;
+}
+
+function getWeatherVisual(code, isDay = true, rain = 0) {
+  const value = Number(code);
+  if ([95, 96, 99].includes(value)) return { tone: 'storm', emoji: '⛈️', label: 'พายุฝนฟ้าคะนอง' };
+  if (rain >= 65 || [63, 65, 81, 82].includes(value)) return { tone: 'rain', emoji: '🌧️', label: 'ฝนตก' };
+  if (rain >= 35 || [51, 53, 55, 61, 80].includes(value)) return { tone: 'drizzle', emoji: '🌦️', label: 'มีฝนเป็นช่วง' };
+  if ([45, 48].includes(value)) return { tone: 'mist', emoji: '🌫️', label: 'มีหมอก' };
+  if ([2, 3].includes(value)) return { tone: 'cloudy', emoji: '☁️', label: 'มีเมฆมาก' };
+  if (!isDay) return { tone: 'night', emoji: value <= 1 ? '🌙' : '☁️', label: value <= 1 ? 'ท้องฟ้าโปร่ง' : 'มีเมฆบางส่วน' };
+  if (value === 1) return { tone: 'partly', emoji: '🌤️', label: 'มีเมฆบางส่วน' };
+  return { tone: 'clear', emoji: '☀️', label: 'ท้องฟ้าแจ่มใส' };
 }
 
 function Metric({ icon: Icon, label, value, detail, tone }) {
@@ -345,6 +353,7 @@ export default function Dashboard() {
   const pm25 = finiteOrNull(current?.pm25);
   const air = getAirStatus(pm25);
   const summary = getWeatherSummary(current, pm25);
+  const weatherVisual = getWeatherVisual(current?.weatherCode, current?.isDay, current?.rainProb);
   const activities = getActivityAdvice(current, pm25);
   const daylight = getDaylight(current);
   const SummaryIcon = summary.icon;
@@ -406,11 +415,11 @@ export default function Dashboard() {
           {locationError && <p className="field-error" role="alert">{locationError}</p>}
         </section>
 
-        <section className={`today-hero today-hero--${summary.tone}`}>
+        <section className={`today-hero today-hero--${weatherVisual.tone}`}>
           <div aria-hidden="true" className="weather-scene">
-            <span className="weather-scene__sun"><Sun size={30} strokeWidth={1.8} /></span>
-            <span className="weather-scene__cloud"><Cloud size={42} strokeWidth={1.7} /></span>
-            <span className="weather-scene__wind"><Wind size={27} strokeWidth={1.8} /></span>
+            <span className="weather-scene__sun">{weatherVisual.tone === 'night' ? '🌙' : '☀️'}</span>
+            <span className="weather-scene__cloud">☁️</span>
+            <span className="weather-scene__wind">〰️</span>
           </div>
           <div className="today-hero__main">
             <div className="data-line">
@@ -419,12 +428,12 @@ export default function Dashboard() {
             </div>
             <div className="today-hero__weather">
               <span className="weather-symbol">
-                <WeatherGlyph code={current?.weatherCode} isDay={current?.isDay} rain={current?.rainProb} size={34} />
+                <WeatherGlyph code={current?.weatherCode} isDay={current?.isDay} rain={current?.rainProb} size={48} />
               </span>
               <div>
                 <p className="today-hero__place">{locationLabel}</p>
                 <div className="today-hero__temperature">{Math.round(current?.temp)}<span>°</span></div>
-                <p>รู้สึกเหมือน {Math.round(current?.feelsLike)}°C · ฝน {Math.round(current?.rainProb || 0)}%</p>
+                <p>{weatherVisual.label} · รู้สึกเหมือน {Math.round(current?.feelsLike)}°C · ฝน {Math.round(current?.rainProb || 0)}%</p>
               </div>
             </div>
           </div>

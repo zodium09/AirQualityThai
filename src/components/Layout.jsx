@@ -1,5 +1,5 @@
 import { createElement, useContext } from 'react';
-import { BellRing, House, Map, Moon, Sun, Wind } from 'lucide-react';
+import { BarChart3, BellRing, House, Map, Moon, Sun, Wind } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { WeatherContext } from '../context/WeatherContext';
 import InstallPrompt from './InstallPrompt';
@@ -9,6 +9,7 @@ const navigation = [
   { to: '/', label: 'วันนี้', icon: House, end: true },
   { to: '/map', label: 'แผนที่', icon: Map },
   { to: '/news', label: 'ประกาศ', icon: BellRing },
+  { to: '/stats', label: 'สถิติ', icon: BarChart3 },
 ];
 
 function NavigationLinks({ mobile = false }) {

@@ -42,6 +42,7 @@ function lazyWithRetry(loader) {
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
 const MapPage = lazyWithRetry(() => import('./pages/MapPage'));
 const NewsPage = lazyWithRetry(() => import('./pages/NewsPage'));
+const StatsPage = lazyWithRetry(() => import('./pages/StatsPage'));
 
 class RouteErrorBoundary extends React.Component {
   constructor(props) {
@@ -99,6 +100,7 @@ export default function App() {
           <Route index element={<LazyRoute><Dashboard /></LazyRoute>} />
           <Route element={<LazyRoute><MapPage /></LazyRoute>} path="map" />
           <Route element={<LazyRoute><NewsPage /></LazyRoute>} path="news" />
+          <Route element={<LazyRoute><StatsPage /></LazyRoute>} path="stats" />
           <Route element={<Navigate replace to="/" />} path="ai" />
           <Route element={<Navigate replace to="/" />} path="*" />
         </Route>
