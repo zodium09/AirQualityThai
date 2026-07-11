@@ -5,6 +5,7 @@
     "api/cron-wind.js": { "maxDuration": 30 },
     "api/weather-history.js": { "maxDuration": 30 },
     "api/statistics.js": { "maxDuration": 30 },
+    "api/radar.js": { "maxDuration": 30 },
     "api/cron-history.js": { "maxDuration": 30 }
   },
   "headers": [

@@ -6,6 +6,19 @@ const SCAN_RADIUS_KM = 90;
 const CENTER_RADIUS_KM = 7;
 const TILE_TIMEOUT_MS = 4500;
 const API_TIMEOUT_MS = 9000;
+const RESULT_CACHE_MS = 8 * 60 * 1000;
+const resultCache = new Map();
+const tileCache = new Map();
+const tilePromiseCache = new Map();
+
+const RAIN_PALETTE = [
+  '#88ddee', '#6cd1eb', '#51c5e8', '#36bae5', '#1baee2', '#00a3e0', '#009ad5', '#0091ca', '#0088bf', '#007fb4',
+  '#0077aa', '#0070a3', '#00699c', '#006295', '#005b8e', '#005588', '#005180', '#004e78', '#004a70', '#004768',
+  '#ffee00', '#ffe000', '#ffd200', '#ffc500', '#ffb700', '#ffaa00', '#ff9f00', '#ff9500', '#ff8b00', '#ff8100',
+  '#ff4400', '#f23600', '#e62800', '#d91b00', '#cd0d00', '#c10000', '#a80000', '#8f0000', '#760000', '#5d0000',
+  '#ffaaff', '#ff9fff', '#ff95ff', '#ff8bff', '#ff81ff', '#ff77ff', '#ff6cff', '#ff62ff', '#ff58ff', '#ff4eff',
+];
+const DBZ_BY_COLOR = new Map(RAIN_PALETTE.map((color, index) => [color, index + 15]));
 
 const abortableFetch = async (url, timeoutMs = API_TIMEOUT_MS) => {
   const ctrl = new AbortController();
@@ -58,29 +71,57 @@ const getLocationName = async (lat, lon) => {
 };
 
 const rainLevelInfo = (level) => {
-  if (level >= 5) return { label: 'ม่วง/แดงเข้ม', desc: 'ฝนหนักมาก', color: '#7f1d1d' };
-  if (level >= 4) return { label: 'แดง/ส้ม', desc: 'ฝนหนัก', color: '#ef4444' };
-  if (level >= 3) return { label: 'เหลือง', desc: 'ฝนปานกลางถึงหนัก', color: '#f59e0b' };
-  if (level >= 2) return { label: 'เขียว', desc: 'ฝนปานกลาง', color: '#16a34a' };
-  if (level >= 1) return { label: 'ฟ้า/น้ำเงิน', desc: 'ฝนเบา', color: '#2563eb' };
+  if (level >= 5) return { label: 'ชมพู/ขาว', desc: 'ฝนหนักมาก', color: '#9f1239' };
+  if (level >= 4) return { label: 'แดง', desc: 'ฝนหนัก', color: '#ef4444' };
+  if (level >= 3) return { label: 'เหลือง/ส้ม', desc: 'ฝนปานกลางถึงหนัก', color: '#f59e0b' };
+  if (level >= 2) return { label: 'น้ำเงินเข้ม', desc: 'ฝนปานกลาง', color: '#2563eb' };
+  if (level >= 1) return { label: 'ฟ้า', desc: 'ฝนเบา', color: '#0ea5e9' };
   return { label: 'โปร่ง', desc: 'ไม่พบฝน', color: '#0ea5e9' };
 };
 
-const classifyRainPixel = (rgba) => {
-  if (!rgba || rgba.a <= 8) return 0;
-  const { r, g, b } = rgba;
-
-  if ((r >= 190 && b >= 120) || (r >= 220 && g < 95)) return 5;
-  if (r >= 220 && g >= 80 && g < 190) return 4;
-  if (r >= 170 && g >= 150 && b < 150) return 3;
-  if (g >= 120 && r < 190) return 2;
-  if (b >= 100 || rgba.a > 20) return 1;
-  return 0;
+const getRainPixelInfo = (rgba) => {
+  if (!rgba || rgba.a < 220) return { level: 0, dbz: null, rateMmh: 0 };
+  const hex = `#${[rgba.r, rgba.g, rgba.b].map((value) => value.toString(16).padStart(2, '0')).join('')}`;
+  let dbz = DBZ_BY_COLOR.get(hex);
+  if (!dbz) {
+    if (rgba.r >= 245 && rgba.b >= 235) dbz = 57;
+    else if (rgba.r >= 70 && rgba.g < 90 && rgba.b < 70) dbz = 50;
+    else if (rgba.r >= 230 && rgba.g < 195 && rgba.b < 80) dbz = 42;
+    else if (rgba.r >= 220 && rgba.g >= 190 && rgba.b < 100) dbz = 36;
+    else if (rgba.b >= 90 && rgba.g >= 55) dbz = rgba.g >= 125 ? 20 : 30;
+  }
+  if (!dbz) return { level: 0, dbz: null, rateMmh: 0 };
+  const level = dbz >= 55 ? 5 : dbz >= 45 ? 4 : dbz >= 35 ? 3 : dbz >= 25 ? 2 : 1;
+  const reflectivity = 10 ** (dbz / 10);
+  const rateMmh = (reflectivity / 200) ** (1 / 1.6);
+  return { level, dbz, rateMmh };
 };
 
 const tileUrlForFrame = (host, frame, zoom, tx, ty) => {
   const path = frame.path || `/v2/radar/${frame.time}`;
-  return `${host}${path}/${TILE_SIZE}/${zoom}/${tx}/${ty}/2/1_1.png`;
+  return `${host}${path}/${TILE_SIZE}/${zoom}/${tx}/${ty}/2/0_0.png`;
+};
+
+const loadRadarTile = async (url) => {
+  const cached = tileCache.get(url);
+  if (cached && Date.now() - cached.at < RESULT_CACHE_MS) return cached.image;
+  if (tilePromiseCache.has(url)) return tilePromiseCache.get(url);
+
+  const promise = (async () => {
+    const res = await abortableFetch(url, TILE_TIMEOUT_MS);
+    if (!res.ok) return null;
+    const image = await Jimp.read(Buffer.from(await res.arrayBuffer()));
+    tileCache.set(url, { at: Date.now(), image });
+    if (tileCache.size > 120) {
+      [...tileCache.entries()]
+        .sort((a, b) => a[1].at - b[1].at)
+        .slice(0, 24)
+        .forEach(([key]) => tileCache.delete(key));
+    }
+    return image;
+  })().finally(() => tilePromiseCache.delete(url));
+  tilePromiseCache.set(url, promise);
+  return promise;
 };
 
 const loadFrameTiles = async ({ host, frame, minTileX, maxTileX, minTileY, maxTileY }) => {
@@ -93,10 +134,7 @@ const loadFrameTiles = async ({ host, frame, minTileX, maxTileX, minTileY, maxTi
 
   const loaded = await Promise.all(tileEntries.map(async ({ tx, ty }) => {
     try {
-      const res = await abortableFetch(tileUrlForFrame(host, frame, RADAR_ZOOM, tx, ty), TILE_TIMEOUT_MS);
-      if (!res.ok) return null;
-      const arrayBuffer = await res.arrayBuffer();
-      const image = await Jimp.read(Buffer.from(arrayBuffer));
+      const image = await loadRadarTile(tileUrlForFrame(host, frame, RADAR_ZOOM, tx, ty));
       return { key: `${tx}_${ty}`, image };
     } catch {
       return null;
@@ -121,6 +159,10 @@ const scanFrame = ({ frame, tiles, centerAbsX, centerAbsY, radiusPx, centerRadiu
   let nearestLevel = 0;
   let nearestDx = 0;
   let nearestDy = 0;
+  let rainRateTotal = 0;
+  let centerRainRateTotal = 0;
+  let centerRainPixels = 0;
+  let maxRateMmh = 0;
   const buckets = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 
   for (let dy = -radiusPx; dy <= radiusPx; dy += 1) {
@@ -138,7 +180,8 @@ const scanFrame = ({ frame, tiles, centerAbsX, centerAbsY, radiusPx, centerRadiu
       const image = tiles[`${tx}_${ty}`];
       if (!image) continue;
 
-      const level = classifyRainPixel(intToRGBA(image.getPixelColor(px, py)));
+      const pixel = getRainPixelInfo(intToRGBA(image.getPixelColor(px, py)));
+      const level = pixel.level;
       if (!level) continue;
 
       rainPixels += 1;
@@ -149,8 +192,14 @@ const scanFrame = ({ frame, tiles, centerAbsX, centerAbsY, radiusPx, centerRadiu
       weightedX += dx * weight;
       weightedY += dy * weight;
       totalWeight += weight;
+      rainRateTotal += pixel.rateMmh;
+      maxRateMmh = Math.max(maxRateMmh, pixel.rateMmh);
 
-      if (distPx <= centerRadiusPx) centerLevel = Math.max(centerLevel, level);
+      if (distPx <= centerRadiusPx) {
+        centerLevel = Math.max(centerLevel, level);
+        centerRainRateTotal += pixel.rateMmh;
+        centerRainPixels += 1;
+      }
       if (distPx < nearestDistPx) {
         nearestDistPx = distPx;
         nearestLevel = level;
@@ -182,8 +231,24 @@ const scanFrame = ({ frame, tiles, centerAbsX, centerAbsY, radiusPx, centerRadiu
     centroidDx,
     centroidDy,
     rainPixels,
+    meanRateMmh: rainPixels ? Math.round((rainRateTotal / rainPixels) * 10) / 10 : 0,
+    centerRateMmh: centerRainPixels ? Math.round((centerRainRateTotal / centerRainPixels) * 10) / 10 : 0,
+    maxRateMmh: Math.round(maxRateMmh * 10) / 10,
     buckets,
   };
+};
+
+const computeTrend = (analyses) => {
+  const past = analyses.filter((item) => item.type === 'past').sort((a, b) => a.time - b.time).slice(-4);
+  if (past.length < 2) return { id: 'uncertain', label: 'ข้อมูลแนวโน้มยังไม่พอ', changePct: null };
+  const first = past[0];
+  const latest = past[past.length - 1];
+  const firstSignal = first.coveragePct * Math.max(1, first.meanRateMmh);
+  const latestSignal = latest.coveragePct * Math.max(1, latest.meanRateMmh);
+  const changePct = firstSignal > 0 ? Math.round(((latestSignal - firstSignal) / firstSignal) * 100) : (latestSignal > 0 ? 100 : 0);
+  if (changePct >= 25) return { id: 'intensifying', label: 'กลุ่มฝนกำลังแรงขึ้น', changePct };
+  if (changePct <= -25) return { id: 'weakening', label: 'กลุ่มฝนกำลังอ่อนลง', changePct };
+  return { id: 'steady', label: 'ความแรงค่อนข้างคงที่', changePct };
 };
 
 const computeMotion = (analyses, kmPerPixel) => {
@@ -201,7 +266,9 @@ const computeMotion = (analyses, kmPerPixel) => {
   const dy = latest.centroidDy - previous.centroidDy;
   const movedKm = Math.sqrt(dx * dx + dy * dy) * kmPerPixel;
   const speedKmh = movedKm / (elapsedMin / 60);
-  if (!Number.isFinite(speedKmh) || speedKmh < 1) return null;
+  // Centroid jumps can occur when separate cells appear/disappear between frames.
+  // Reject speeds outside plausible short-term storm motion instead of showing a false ETA.
+  if (!Number.isFinite(speedKmh) || speedKmh < 1 || speedKmh > 120) return null;
 
   const bearing = bearingFromPixelVector(dx, dy);
   const latestVectorDx = Number.isFinite(latest.nearestDistKm) ? latest.nearestDx : latest.centroidDx;
@@ -258,6 +325,16 @@ const makeClearResult = ({ timeStr, targetDistrict, scanRadiusKm, factors = [], 
   confidence: unavailable ? 35 : 78,
   unavailable,
   sourceStatus: unavailable ? 'fallback' : 'radar',
+  nowcast: {
+    rainRateMmh: 0,
+    rainNext60MinMm: 0,
+    rainRangeMm: [0, 0],
+    trend: unavailable ? 'uncertain' : 'clear',
+    trendLabel: unavailable ? 'ประเมินแนวโน้มไม่ได้' : 'ยังไม่พบสัญญาณฝน',
+    direction: null,
+    speedKmh: null,
+    etaMinutes: null,
+  },
   factors,
 });
 
@@ -269,18 +346,30 @@ export default async function handler(req, res) {
   const lon = Number(body.lon);
   const windDir = Number(body.windDir);
   const windSpeed = Number(body.windSpeed);
+  const minuteRain = Array.isArray(body.minuteRain) ? body.minuteRain.map(Number).filter(Number.isFinite).slice(0, 4) : [];
+  const minuteProb = Array.isArray(body.minuteProb) ? body.minuteProb.map(Number).filter(Number.isFinite).slice(0, 4) : [];
+  const suppliedLocation = String(body.locationLabel || '').replace(/[<>]/g, '').trim().slice(0, 80);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ error: 'Missing lat/lon' });
+
+  const cacheKey = `${lat.toFixed(2)}:${lon.toFixed(2)}:${Math.round((windDir || 0) / 45)}:${Math.round((windSpeed || 0) / 5)}:${suppliedLocation}`;
+  const cached = resultCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < RESULT_CACHE_MS) {
+    res.setHeader?.('X-Nowcast-Cache', 'HIT');
+    return res.status(200).json(cached.payload);
+  }
 
   try {
     const [rvDataRes, targetDistrict] = await Promise.all([
       abortableFetch('https://api.rainviewer.com/public/weather-maps.json'),
-      getLocationName(lat, lon),
+      suppliedLocation ? Promise.resolve(suppliedLocation) : getLocationName(lat, lon),
     ]);
     if (!rvDataRes.ok) throw new Error(`RainViewer ${rvDataRes.status}`);
     const rvData = await rvDataRes.json();
 
     const host = rvData.host || 'https://tilecache.rainviewer.com';
     const pastFrames = (rvData.radar?.past || []).slice(-6).map((frame) => ({ ...frame, type: 'past' }));
+    // RainViewer public API discontinued future nowcast frames in 2026.
+    // Keep optional support if a compatible provider exposes them, but derive motion from observed frames.
     const nowcastFrames = (rvData.radar?.nowcast || []).slice(0, 3).map((frame) => ({ ...frame, type: 'nowcast' }));
     const frames = [...pastFrames, ...nowcastFrames].filter((frame) => frame.time || frame.path);
     if (!frames.length) throw new Error('No RainViewer frames');
@@ -318,6 +407,7 @@ export default async function handler(req, res) {
       .filter((item) => item.type === 'nowcast' && (item.centerLevel > 0 || (item.nearestDistKm !== null && item.nearestDistKm <= 18)))
       .sort((a, b) => a.time - b.time)[0] || null;
     const motion = computeMotion(analyses, kmPerPixel);
+    const trend = computeTrend(analyses);
     const stormDx = Number.isFinite(latest.nearestDistKm) ? latest.nearestDx : (latest.centroidDx || 0);
     const stormDy = Number.isFinite(latest.nearestDistKm) ? latest.nearestDy : (latest.centroidDy || 0);
     const stormDistanceKm = Number.isFinite(latest.nearestDistKm)
@@ -364,11 +454,28 @@ export default async function handler(req, res) {
       - (latest.rainPixels < 8 ? 12 : 0),
     ));
 
+    const modelRain60 = Math.round(minuteRain.reduce((sum, value) => sum + Math.max(0, value || 0), 0) * 10) / 10;
+    const modelProb60 = minuteProb.length ? Math.max(...minuteProb) : 0;
+    const radarRateAtTarget = latest.centerRateMmh > 0
+      ? latest.centerRateMmh
+      : futureHit?.centerRateMmh > 0
+        ? futureHit.centerRateMmh
+        : (isApproaching && approachEta !== null && approachEta <= 60 ? latest.maxRateMmh * 0.55 : 0);
+    const radarRain60 = Math.round(Math.max(0, radarRateAtTarget) * 10) / 10;
+    const estimatedRain60 = radarRain60 > 0 && modelRain60 > 0
+      ? Math.round((radarRain60 * 0.55 + modelRain60 * 0.45) * 10) / 10
+      : Math.round(Math.max(radarRain60, modelRain60) * 10) / 10;
+    const uncertainty = confidence >= 80 ? [0.7, 1.35] : confidence >= 60 ? [0.55, 1.55] : [0.4, 1.8];
+    const rainRangeMm = estimatedRain60 > 0
+      ? [Math.round(estimatedRain60 * uncertainty[0] * 10) / 10, Math.round(estimatedRain60 * uncertainty[1] * 10) / 10]
+      : [0, modelProb60 >= 40 ? 0.5 : 0];
+
     const factors = [
       { label: 'สีเรดาร์', value: intensity.desc, detail: intensity.label, tone: intensity.color },
       { label: 'ระยะฝนใกล้สุด', value: latest.nearestDistKm !== null ? `${latest.nearestDistKm} กม.` : 'ไม่พบ', detail: directionText, tone: latest.nearestLevel >= 3 ? '#ef4444' : '#2563eb' },
       { label: 'การเคลื่อนที่', value: radarMotionReliable ? `${motion.speedKmh} กม./ชม.` : `${Math.round(windSpeed || 0)} กม./ชม.`, detail: radarMotionReliable ? `ไปทาง${motion.directionText}` : (windMotionReliable ? `ลมไปทาง${windSupport?.windToText || '-'}` : 'ลมอ่อน/ยังไม่ชัด'), tone: isApproaching ? '#f59e0b' : '#64748b' },
       { label: 'พื้นที่ฝนในรัศมี', value: `${latest.coveragePct}%`, detail: `หนัก ${latest.heavyCoveragePct}%`, tone: latest.heavyCoveragePct > 0 ? '#ef4444' : '#0ea5e9' },
+      { label: 'ฝน 60 นาที', value: estimatedRain60 > 0 ? `≈ ${estimatedRain60} มม.` : modelProb60 >= 30 ? `โอกาส ${Math.round(modelProb60)}%` : 'ยังไม่พบฝน', detail: estimatedRain60 > 0 ? `ช่วง ${rainRangeMm[0]}–${rainRangeMm[1]} มม.` : trend.label, tone: estimatedRain60 >= 10 ? '#ef4444' : estimatedRain60 > 0 ? '#2563eb' : '#0ea5e9' },
       { label: 'ความมั่นใจ', value: `${confidence}%`, detail: `${analyses.length} เฟรม`, tone: confidence >= 75 ? '#16a34a' : '#f59e0b' },
     ];
 
@@ -392,12 +499,25 @@ export default async function handler(req, res) {
         stormMotionKmh: motion?.speedKmh || null,
         stormMotionDirection: motion?.directionText || null,
         approachSpeedKmh: radarMotionReliable ? motion?.approachSpeedKmh : (windMotionReliable ? windSupport?.approachSpeedKmh : null),
-        etaMinutes: approachEta,
+        etaMinutes: approachEta !== null && approachEta <= 120 ? approachEta : null,
         windMoveDirection: windSupport?.windToText || null,
         windSupportsApproach: windSupport?.supportsApproach || false,
         futureHitMinutes: futureHit ? Math.max(0, Math.round((futureHit.time - latest.time) / 60)) : null,
       },
       factors,
+      nowcast: {
+        rainRateMmh: Math.round(radarRateAtTarget * 10) / 10,
+        rainNext60MinMm: estimatedRain60,
+        rainRangeMm,
+        probability60: Math.round(modelProb60),
+        trend: trend.id,
+        trendLabel: trend.label,
+        trendChangePct: trend.changePct,
+        direction: radarMotionReliable ? motion?.directionText : windSupport?.windToText || null,
+        speedKmh: radarMotionReliable ? motion?.speedKmh : windSupport?.approachSpeedKmh || null,
+        etaMinutes: approachEta !== null && approachEta <= 120 ? approachEta : null,
+        method: 'radar-extrapolation-plus-15min-forecast',
+      },
     };
 
     if (alertLevel >= 3) {
@@ -424,6 +544,12 @@ export default async function handler(req, res) {
       resultData.cardDesc = `พบกลุ่ม${intensity.desc}ในรัศมี ${SCAN_RADIUS_KM} กม. ใกล้สุด ${latest.nearestDistKm ?? '-'} กม. ทางทิศ${directionText} แต่เวลาถึงโดยประมาณยังเกิน 90 นาทีหรือทิศทางยังไม่ชัด จึงให้เป็นเพียงการจับตา`;
     }
 
+    resultCache.set(cacheKey, { at: Date.now(), payload: resultData });
+    if (resultCache.size > 80) {
+      const oldest = [...resultCache.entries()].sort((a, b) => a[1].at - b[1].at).slice(0, 20);
+      oldest.forEach(([key]) => resultCache.delete(key));
+    }
+    res.setHeader?.('X-Nowcast-Cache', 'MISS');
     return res.status(200).json(resultData);
   } catch (error) {
     const fallbackTime = new Date().toLocaleTimeString('th-TH', {

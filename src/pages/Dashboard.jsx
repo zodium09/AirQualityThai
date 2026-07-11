@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import LoadingScreen from '../components/LoadingScreen';
+import RainNowcast from '../components/RainNowcast';
 import { WeatherContext } from '../context/WeatherContext';
 import { useWeatherData } from '../hooks/useWeatherData';
 
@@ -198,6 +199,19 @@ function getWeatherVisual(code, isDay = true, rain = 0) {
   return { tone: 'clear', emoji: '☀️', label: 'ท้องฟ้าแจ่มใส' };
 }
 
+function getProvinceMood(province, coords) {
+  const name = cleanProvinceName(province);
+  const lat = Number(coords?.lat);
+  const lon = Number(coords?.lon);
+  if (name.includes('กรุงเทพ')) return 'metro';
+  if (Number.isFinite(lat) && lat < 11.7) return 'south';
+  if (Number.isFinite(lat) && lat >= 17) return 'north';
+  if (Number.isFinite(lon) && Number.isFinite(lat) && lon >= 101.4 && lat >= 14) return 'northeast';
+  if (Number.isFinite(lon) && Number.isFinite(lat) && lon >= 100.7 && lat < 14.7) return 'east';
+  if (Number.isFinite(lon) && lon < 99.7) return 'west';
+  return 'central';
+}
+
 function Metric({ icon: Icon, label, value, detail, tone }) {
   return (
     <div className={`metric metric--${tone}`}>
@@ -349,11 +363,12 @@ export default function Dashboard() {
     return <LoadingScreen title="กำลังดูอากาศวันนี้" subtitle={`เตรียมข้อมูลของ${locationLabel}`} />;
   }
 
-  const { current, daily, hourly } = weatherData;
+  const { current, daily, hourly, minutely } = weatherData;
   const pm25 = finiteOrNull(current?.pm25);
   const air = getAirStatus(pm25);
   const summary = getWeatherSummary(current, pm25);
   const weatherVisual = getWeatherVisual(current?.weatherCode, current?.isDay, current?.rainProb);
+  const provinceMood = getProvinceMood(selectedProvince, weatherData.coords);
   const activities = getActivityAdvice(current, pm25);
   const daylight = getDaylight(current);
   const SummaryIcon = summary.icon;
@@ -415,7 +430,7 @@ export default function Dashboard() {
           {locationError && <p className="field-error" role="alert">{locationError}</p>}
         </section>
 
-        <section className={`today-hero today-hero--${weatherVisual.tone}`}>
+        <section className={`today-hero today-hero--${weatherVisual.tone} today-hero--region-${provinceMood}`}>
           <div aria-hidden="true" className="weather-scene">
             <span className="weather-scene__sun">{weatherVisual.tone === 'night' ? '🌙' : '☀️'}</span>
             <span className="weather-scene__cloud">☁️</span>
@@ -448,6 +463,14 @@ export default function Dashboard() {
             </div>
           </div>
         </section>
+
+        <RainNowcast
+          coords={weatherData.coords}
+          current={current}
+          locationLabel={locationLabel}
+          minutely={minutely}
+          onUseLocation={handleUseLocation}
+        />
 
         <section aria-labelledby="conditions-title" className="section-block section-block--conditions">
           <div className="section-heading">
