@@ -1542,6 +1542,37 @@ body.dark-theme .nowcast-metrics article { background: color-mix(in oklch, var(-
   margin-left: auto;
 }
 
+.enso-card {
+  align-items: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: flex;
+  gap: 12px;
+  margin: 14px 0 18px;
+  padding: 16px;
+}
+
+.enso-card__icon {
+  align-items: center;
+  background: var(--primary-soft);
+  border-radius: 11px;
+  color: var(--primary-hover);
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 42px;
+  justify-content: center;
+  width: 42px;
+}
+
+.enso-card .section-label { color: var(--primary-hover); }
+.enso-card h2 { font-size: 1rem; margin: 4px 0; }
+.enso-card p { color: var(--ink-soft); font-size: .78rem; line-height: 1.5; margin: 0; }
+.enso-card--rain { background: var(--rain-soft); border-color: color-mix(in oklch, var(--rain) 30%, var(--line)); }
+.enso-card--heat { background: var(--warning-soft); border-color: color-mix(in oklch, var(--warning) 35%, var(--line)); }
+.enso-card--neutral { background: var(--success-soft); border-color: color-mix(in oklch, var(--success) 25%, var(--line)); }
+.enso-card--pending { background: var(--surface-2); }
+
 /* Statistics */
 .stats-header { align-items: flex-end; display: flex; gap: 24px; justify-content: space-between; margin: 8px 0 20px; }
 .stats-header h1 { font-size: 2.15rem; margin: 2px 0 6px; }

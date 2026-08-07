@@ -108,6 +108,44 @@ function SeverityBadge({ severity }) {
   return <span className={`severity severity--${severity}`}>{label}</span>;
 }
 
+function getEnsoSummary(data) {
+  if (!data || data.fallback) {
+    return {
+      title: 'ยังไม่มีข้อมูลล่าสุด',
+      detail: 'กำลังรอผลแนวโน้มฝนและความร้อนระยะยาว',
+      tone: 'pending',
+    };
+  }
+
+  const signal = [data.alert, data.status, ...asArray(data.forecast).map((item) => item?.value)].filter(Boolean).join(' ').toLowerCase();
+  if (/la niña|la nina|ลานีญา|ลานีญ่า/.test(signal)) {
+    return {
+      title: 'แนวโน้มลานีญา',
+      detail: 'ฝนอาจมากขึ้นและควรระวังฝนหนักในบางช่วง',
+      tone: 'rain',
+    };
+  }
+  if (/el niño|el nino|เอลนีโญ|เอลนีโญ่/.test(signal)) {
+    return {
+      title: 'แนวโน้มเอลนีโญ',
+      detail: 'อากาศอาจร้อนขึ้นและฝนอาจน้อยกว่าปกติในบางช่วง',
+      tone: 'heat',
+    };
+  }
+  if (/neutral|เป็นกลาง/.test(signal)) {
+    return {
+      title: 'ภาวะเป็นกลาง',
+      detail: 'ยังไม่พบสัญญาณเอลนีโญหรือลานีญาที่เด่นชัด',
+      tone: 'neutral',
+    };
+  }
+  return {
+    title: 'กำลังติดตามแนวโน้ม',
+    detail: 'ยังไม่มีสัญญาณที่ชัดเจนต่อฝนและความร้อนระยะยาว',
+    tone: 'pending',
+  };
+}
+
 export default function NewsPage() {
   const [feed, setFeed] = useState(readCache);
   const [loading, setLoading] = useState(!feed);
@@ -115,6 +153,8 @@ export default function NewsPage() {
   const [refreshToken, setRefreshToken] = useState(0);
   const [activeCategory, setActiveCategory] = useState('all');
   const [query, setQuery] = useState('');
+  const [enso, setEnso] = useState(null);
+  const [ensoLoading, setEnsoLoading] = useState(true);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -150,6 +190,31 @@ export default function NewsPage() {
     };
   }, [refreshToken]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+
+    async function loadEnso() {
+      setEnsoLoading(true);
+      try {
+        const response = await fetch(refreshToken ? `/api/enso?fresh=${refreshToken}` : '/api/enso', { signal: controller.signal });
+        if (!response.ok) throw new Error('ENSO unavailable');
+        const payload = await response.json();
+        if (active) setEnso(payload);
+      } catch (loadError) {
+        if (loadError.name !== 'AbortError' && active) setEnso(null);
+      } finally {
+        if (active) setEnsoLoading(false);
+      }
+    }
+
+    loadEnso();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [refreshToken]);
+
   const items = useMemo(() => collectItems(feed), [feed]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -164,6 +229,7 @@ export default function NewsPage() {
   const highCount = items.filter((item) => item.severity === 'high').length;
   const priority = filtered[0];
   const remaining = filtered.slice(1);
+  const ensoSummary = getEnsoSummary(enso);
   const generatedAt = feed?.generatedAt || feed?.fetchedAt || feed?.updatedAt;
 
   return (
@@ -185,6 +251,15 @@ export default function NewsPage() {
           <span>{error || (feed ? `อัปเดต ${formatTime(generatedAt)}` : 'กำลังโหลดประกาศ')}</span>
           <span className="news-status__counts">สำคัญ {highCount} · ทั้งหมด {items.length}</span>
         </div>
+
+        <section className={`enso-card enso-card--${ensoSummary.tone}`} aria-label="แนวโน้มเอลนีโญและลานีญา">
+          <span className="enso-card__icon"><Waves aria-hidden="true" size={22} /></span>
+          <div>
+            <span className="section-label">แนวโน้มฝนและความร้อนระยะยาว</span>
+            <h2>{ensoLoading ? 'กำลังอัปเดตแนวโน้ม' : ensoSummary.title}</h2>
+            <p>{ensoLoading ? 'รอสักครู่' : ensoSummary.detail}</p>
+          </div>
+        </section>
 
         <section className="news-tools" aria-label="ค้นหาและกรองประกาศ">
           <label className="search-field search-field--large">
