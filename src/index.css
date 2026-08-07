@@ -1542,39 +1542,6 @@ body.dark-theme .nowcast-metrics article { background: color-mix(in oklch, var(-
   margin-left: auto;
 }
 
-.world-monitor {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(260px, 1.4fr) repeat(3, minmax(125px, .62fr));
-  margin: 14px 0 20px;
-}
-
-.world-monitor > article {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow: 0 8px 24px color-mix(in oklch, var(--primary) 7%, transparent);
-  padding: 15px;
-}
-
-.world-monitor__intro { align-items: flex-start; display: flex; gap: 12px; grid-row: span 2; }
-.world-monitor__intro > span { align-items: center; background: var(--primary-soft); border-radius: 11px; color: var(--primary-hover); display: inline-flex; flex: 0 0 auto; height: 42px; justify-content: center; width: 42px; }
-.world-monitor__intro div,
-.world-monitor__enso div { display: flex; flex-direction: column; }
-.world-monitor small { color: var(--muted); font-size: .68rem; }
-.world-monitor__intro strong { font-size: 1.05rem; margin: 4px 0; }
-.world-monitor__intro p { color: var(--ink-soft); font-size: .76rem; line-height: 1.5; margin: 3px 0 0; }
-.world-monitor__card { display: grid; gap: 3px; grid-template-columns: 24px 1fr; }
-.world-monitor__card svg { color: var(--primary); grid-row: span 2; }
-.world-monitor__card span { color: var(--ink-soft); font-size: .7rem; }
-.world-monitor__card strong { font-size: 1.45rem; line-height: 1; }
-.world-monitor__card small { grid-column: 1 / -1; margin-top: 4px; }
-.world-monitor__enso { align-items: flex-start; background: linear-gradient(135deg, var(--primary-soft), var(--secondary-soft)) !important; display: flex; gap: 10px; grid-column: 2 / -1; }
-.world-monitor__enso svg { color: var(--accent-hover); flex: 0 0 auto; }
-.world-monitor__enso span { color: var(--muted); font-size: .68rem; }
-.world-monitor__enso strong { font-size: .82rem; margin: 2px 0; }
-.world-monitor__enso small { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-
 /* Statistics */
 .stats-header { align-items: flex-end; display: flex; gap: 24px; justify-content: space-between; margin: 8px 0 20px; }
 .stats-header h1 { font-size: 2.15rem; margin: 2px 0 6px; }
@@ -2059,9 +2026,6 @@ body.dark-theme .nowcast-metrics article { background: color-mix(in oklch, var(-
   .news-header p { font-size: 0.84rem; }
   .news-status { align-items: flex-start; flex-wrap: wrap; }
   .news-status__counts { flex-basis: 100%; margin-left: 16px; }
-  .world-monitor { grid-template-columns: repeat(3, 1fr); }
-  .world-monitor__intro { grid-column: 1 / -1; grid-row: auto; }
-  .world-monitor__enso { grid-column: 1 / -1; }
   .priority-alert { padding: 18px 16px; }
   .priority-alert__symbol { height: 50px; right: 14px; top: 14px; width: 50px; }
   .priority-alert h2 { padding-right: 48px; }
