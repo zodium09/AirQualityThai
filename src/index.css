@@ -1038,7 +1038,7 @@ body.dark-theme .nowcast-metrics article { background: color-mix(in oklch, var(-
   border-radius: 16px;
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   margin-top: 18px;
   overflow: hidden;
   padding: 20px;
@@ -1048,8 +1048,6 @@ body.dark-theme .nowcast-metrics article { background: color-mix(in oklch, var(-
 .radar-disclosure__icon { align-items: center; background: var(--rain); border-radius: 10px; color: white; display: inline-flex; flex: 0 0 auto; height: 42px; justify-content: center; width: 42px; }
 .radar-disclosure h2 { font-size: 1.18rem; margin: 0; }
 .radar-disclosure p { color: var(--ink-soft); font-size: .78rem; line-height: 1.5; margin: 4px 0 0; max-width: 65ch; }
-.radar-disclosure__toggle svg { transition: transform 180ms ease-out; }
-.radar-disclosure.is-open .radar-disclosure__toggle svg { transform: rotate(180deg); }
 
 .radar-frame {
   aspect-ratio: 16 / 7;
@@ -2034,7 +2032,6 @@ body.dark-theme .nowcast-metrics article { background: color-mix(in oklch, var(-
   .hour-cell { flex-basis: 68px; min-width: 68px; }
 
   .radar-disclosure { align-items: stretch; grid-template-columns: 1fr; margin-top: 12px; padding: 16px 14px; }
-  .radar-disclosure__toggle { width: 100%; }
   .radar-frame { aspect-ratio: 4 / 5; min-height: 460px; }
 
   .forecast-row {

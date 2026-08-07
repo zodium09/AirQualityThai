@@ -2,7 +2,6 @@ import { createElement, useContext, useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
   CalendarDays,
-  ChevronDown,
   CloudRain,
   Droplets,
   Gauge,
@@ -151,7 +150,6 @@ export default function Dashboard() {
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState('');
   const [geoDistricts, setGeoDistricts] = useState([]);
-  const [radarOpen, setRadarOpen] = useState(false);
   const [radarLoaded, setRadarLoaded] = useState(false);
 
   const sortedStations = useMemo(() => [...(stations || [])].sort((a, b) => a.areaTH.localeCompare(b.areaTH, 'th')), [stations]);
@@ -379,24 +377,19 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className={`radar-disclosure${radarOpen ? ' is-open' : ''}`}>
+        <section className="radar-disclosure">
           <div className="radar-disclosure__intro">
             <span className="radar-disclosure__icon"><RadioTower aria-hidden="true" size={22} /></span>
             <div>
               <span className="section-label">ดูฝนแบบเรียลไทม์</span>
               <h2>เรดาร์ฝนใกล้ {locationLabel}</h2>
-              <p>ดูทิศทางกลุ่มฝนก่อนเดินทาง เปิดเฉพาะเมื่อใช้เพื่อช่วยประหยัดข้อมูลและเวลาโหลด</p>
+              <p>ดูทิศทางกลุ่มฝนแบบเรียลไทม์เพื่อวางแผนก่อนเดินทาง</p>
             </div>
           </div>
-          <button aria-expanded={radarOpen} className="button button--secondary radar-disclosure__toggle" onClick={() => setRadarOpen((value) => !value)} type="button">
-            {radarOpen ? 'ซ่อนเรดาร์' : 'เปิดเรดาร์ฝน'} <ChevronDown aria-hidden="true" size={18} />
-          </button>
-          {radarOpen && (
-            <div className="radar-frame">
-              {!radarLoaded && <div className="radar-frame__loading"><RadioTower aria-hidden="true" size={22} /><span>กำลังเชื่อมต่อภาพเรดาร์</span></div>}
-              <iframe allowFullScreen loading="lazy" onLoad={() => setRadarLoaded(true)} src={radarSrc} title={`เรดาร์ฝนใกล้ ${locationLabel}`} />
-            </div>
-          )}
+          <div className="radar-frame">
+            {!radarLoaded && <div className="radar-frame__loading"><RadioTower aria-hidden="true" size={22} /><span>กำลังเชื่อมต่อภาพเรดาร์</span></div>}
+            <iframe allowFullScreen loading="eager" onLoad={() => setRadarLoaded(true)} src={radarSrc} title={`เรดาร์ฝนใกล้ ${locationLabel}`} />
+          </div>
         </section>
 
         <RainNowcast
