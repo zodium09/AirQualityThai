@@ -17,7 +17,19 @@ function alertTone(level, unavailable) {
   return 'clear';
 }
 
-export default function RainNowcast({ coords, current, locationLabel, minutely, onUseLocation }) {
+function compactRadarSummary(data) {
+  if (!data || data.unavailable) return { label: 'เรดาร์ไม่พร้อม', tone: 'fallback' };
+  const eta = Number(data?.nowcast?.etaMinutes);
+  const probability = Number(data?.nowcast?.probability60 || 0);
+  if (data.alertLevel >= 3) return { label: eta > 0 ? `ฝนถึงใน ${eta} นาที` : 'ฝนกำลังเข้าใกล้', tone: 'urgent' };
+  if (data.alertLevel >= 2) return { label: 'เตรียมรับฝน', tone: 'warning' };
+  if (data.alertLevel >= 1) return { label: 'พบฝนใกล้พื้นที่', tone: 'watch' };
+  if (probability >= 50) return { label: 'โอกาสฝนสูง', tone: 'warning' };
+  if (probability >= 30) return { label: 'จับตาฝน', tone: 'watch' };
+  return { label: 'ยังไม่พบฝน', tone: 'clear' };
+}
+
+export default function RainNowcast({ coords, current, locationLabel, minutely, onSummaryChange, onUseLocation }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -40,6 +52,7 @@ export default function RainNowcast({ coords, current, locationLabel, minutely, 
     if (!Number.isFinite(requestBody.lat) || !Number.isFinite(requestBody.lon)) return;
     setLoading(true);
     setError('');
+    onSummaryChange?.({ label: 'กำลังสแกนฝน', tone: 'loading' });
     try {
       const response = await fetch('/api/radar', {
         method: 'POST',
@@ -48,13 +61,18 @@ export default function RainNowcast({ coords, current, locationLabel, minutely, 
         signal,
       });
       if (!response.ok) throw new Error(`ระบบเรดาร์ตอบกลับ ${response.status}`);
-      setData(await response.json());
+      const payload = await response.json();
+      setData(payload);
+      onSummaryChange?.(compactRadarSummary(payload));
     } catch (loadError) {
-      if (loadError.name !== 'AbortError') setError('เชื่อมต่อการวิเคราะห์เรดาร์ไม่ได้ชั่วคราว');
+      if (loadError.name !== 'AbortError') {
+        setError('เชื่อมต่อการวิเคราะห์เรดาร์ไม่ได้ชั่วคราว');
+        onSummaryChange?.({ label: 'เรดาร์ไม่พร้อม', tone: 'fallback' });
+      }
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [requestBody]);
+  }, [onSummaryChange, requestBody]);
 
   useEffect(() => {
     const controller = new AbortController();

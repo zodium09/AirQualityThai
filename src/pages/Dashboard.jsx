@@ -152,6 +152,7 @@ export default function Dashboard() {
   const [locationError, setLocationError] = useState('');
   const [geoDistricts, setGeoDistricts] = useState([]);
   const [radarLoaded, setRadarLoaded] = useState(false);
+  const [radarSummary, setRadarSummary] = useState({ label: 'กำลังสแกนฝน', tone: 'loading' });
   const [locationControlsOpen, setLocationControlsOpen] = useState(false);
 
   const sortedStations = useMemo(() => [...(stations || [])].sort((a, b) => a.areaTH.localeCompare(b.areaTH, 'th')), [stations]);
@@ -386,6 +387,9 @@ export default function Dashboard() {
 
           <div className="today-hero__decision">
             <span className="decision-icon"><SummaryIcon aria-hidden="true" size={24} /></span>
+            <span className={`hero-radar-alert hero-radar-alert--${radarSummary.tone}`} title="สรุปคำเตือนจากเรดาร์ฝนตอนนี้">
+              <CloudRain aria-hidden="true" size={13} /> {radarSummary.label}
+            </span>
             <div>
               <span className="section-label">คำแนะนำตอนนี้</span>
               <h1>{summary.title}</h1>
@@ -415,6 +419,7 @@ export default function Dashboard() {
           current={current}
           locationLabel={locationLabel}
           minutely={minutely}
+          onSummaryChange={setRadarSummary}
           onUseLocation={handleUseLocation}
         />
 
