@@ -9,6 +9,7 @@ import {
   Map,
   Navigation,
   RadioTower,
+  SlidersHorizontal,
   ShieldCheck,
   Sun,
   ThermometerSun,
@@ -151,6 +152,7 @@ export default function Dashboard() {
   const [locationError, setLocationError] = useState('');
   const [geoDistricts, setGeoDistricts] = useState([]);
   const [radarLoaded, setRadarLoaded] = useState(false);
+  const [locationControlsOpen, setLocationControlsOpen] = useState(false);
 
   const sortedStations = useMemo(() => [...(stations || [])].sort((a, b) => a.areaTH.localeCompare(b.areaTH, 'th')), [stations]);
   const districts = useMemo(() => {
@@ -212,6 +214,10 @@ export default function Dashboard() {
     setRadarLoaded(false);
   }, [radarSrc]);
 
+  useEffect(() => {
+    if (locationError) setLocationControlsOpen(true);
+  }, [locationError]);
+
   const handleProvinceChange = (event) => {
     const next = event.target.value;
     setSelectedProvince(next);
@@ -220,6 +226,7 @@ export default function Dashboard() {
     setSelectedDistrict('');
     localStorage.setItem(LOCATION_KEY, next);
     localStorage.removeItem(DISTRICT_KEY);
+    setLocationControlsOpen(false);
   };
 
   const handleDistrictChange = async (event) => {
@@ -228,6 +235,7 @@ export default function Dashboard() {
     setLocationError('');
     if (next) localStorage.setItem(DISTRICT_KEY, next);
     else localStorage.removeItem(DISTRICT_KEY);
+    setLocationControlsOpen(false);
     if (!next) {
       const station = sortedStations.find((item) => cleanProvinceName(item.areaTH) === cleanProvinceName(selectedProvince));
       if (station) fetchWeatherByCoords(Number(station.lat), Number(station.long));
@@ -265,6 +273,7 @@ export default function Dashboard() {
         setLocationLabel('ตำแหน่งปัจจุบัน');
         setSelectedDistrict('');
         setLocating(false);
+        setLocationControlsOpen(false);
       },
       () => {
         setLocationError('ไม่สามารถใช้ตำแหน่งได้ กรุณาอนุญาตสิทธิ์หรือลองเลือกจังหวัด');
@@ -310,7 +319,7 @@ export default function Dashboard() {
   return (
     <div className="page dashboard-page">
       <div className="page__inner">
-        <section className="location-bar" aria-label="เลือกพื้นที่">
+        <section className={`location-bar${locationControlsOpen ? ' is-open' : ''}`} aria-label="เลือกพื้นที่">
           <div className="location-bar__title">
             <span className="location-bar__icon"><Map aria-hidden="true" size={18} /></span>
             <div>
@@ -318,6 +327,15 @@ export default function Dashboard() {
               <strong>{locationLabel}</strong>
             </div>
           </div>
+          <button
+            aria-expanded={locationControlsOpen}
+            aria-label={locationControlsOpen ? 'ซ่อนตัวกรองพื้นที่' : 'เปิดตัวกรองพื้นที่'}
+            className="location-bar__toggle"
+            onClick={() => setLocationControlsOpen((value) => !value)}
+            type="button"
+          >
+            <SlidersHorizontal aria-hidden="true" size={17} />
+          </button>
           <div className="location-bar__controls">
             <label className="select-field">
               <span className="sr-only">เลือกจังหวัด</span>
