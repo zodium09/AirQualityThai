@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-11T00:00:00+07:00",
+  "title": "Design System: อากาศไทย",
+  "extensions": {
+    "colorMeta": {
+      "primary": { "role": "primary", "displayName": "Action blue" },
+      "primary-soft": { "role": "primary", "displayName": "Pale selected blue" },
+      "surface": { "role": "neutral", "displayName": "White surface" },
+      "bg": { "role": "neutral", "displayName": "Pale blue canvas" },
+      "ink": { "role": "neutral", "displayName": "Dark blue text" }
+    },
+    "typographyMeta": {
+      "body": { "displayName": "Thai body text", "purpose": "Shared self-hosted Thai font and fallback stack." },
+      "temperature": { "displayName": "Current temperature", "purpose": "Primary weather value; tabular numerals and a smaller mobile size." }
+    },
+    "shadows": [
+      { "name": "selected-segment", "value": "0 2px 5px #0b518812", "purpose": "Separates the white selected forecast segment from its pale track." }
+    ],
+    "motion": [
+      { "name": "weather-button", "value": "background-color 180ms", "purpose": "Weather button hover fill." },
+      { "name": "radar-disclosure", "value": "transform 200ms", "purpose": "Rotates the disclosure arrow on expansion." }
+    ],
+    "breakpoints": [
+      { "name": "weather-intermediate", "value": "1050px" },
+      { "name": "weather-single-column", "value": "760px" },
+      { "name": "mobile-navigation", "value": "700px" },
+      { "name": "narrow-weather", "value": "360px" }
+    ],
+    "focus": { "outline": "3px solid color-mix(in oklch, var(--focus) 45%, transparent)", "outlineOffset": "2px" },
+    "reducedMotion": "Existing prefers-reduced-motion rules reduce animation and transition durations and disable smooth scrolling.",
+    "provenance": "Observed src/weather.css, src/index.css, src/components/Layout.jsx and desktop-first/mobile-first screenshots in artifacts/review. No approved comp. Tonal ramps are omitted because no additional palette was authorized."
+  },
+  "components": [
+    {
+      "name": "Weather primary action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "A clear 44px-minimum weather action with hover, disabled and keyboard-focus states.",
+      "html": "<button type=\"button\" class=\"ds-weather-button\">ดูแผนที่</button>",
+      "css": ".ds-weather-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--primary,#1675df);color:white;border:0;border-radius:9px;padding:10px 16px;min-height:44px;font-family:\"Noto Sans Thai\",\"Leelawadee UI\",Tahoma,sans-serif;font-size:.88rem;font-weight:600;cursor:pointer;transition:background-color 180ms}.ds-weather-button:hover{background:var(--primary-hover,#0c5ebc)}.ds-weather-button:disabled{cursor:wait;opacity:.6}.ds-weather-button:focus-visible{outline:3px solid color-mix(in oklch,var(--focus,oklch(65% .2 244)) 45%,transparent);outline-offset:2px}@media(prefers-reduced-motion:reduce){.ds-weather-button{transition-duration:.01ms}}"
+    },
+    {
+      "name": "Weather panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "A bordered white panel with readable Thai title and supporting text.",
+      "html": "<section class=\"ds-weather-panel\"><h2>วางแผน 24 ชั่วโมงข้างหน้า</h2><p>ดูจังหวะอากาศ ก่อนออกเดินทาง</p></section>",
+      "css": ".ds-weather-panel{padding:24px;background:var(--surface,#fff);border:1px solid var(--line,#dce8f4);border-radius:16px;color:var(--ink,#17344f);font-family:\"Noto Sans Thai\",\"Leelawadee UI\",Tahoma,sans-serif;min-width:0}.ds-weather-panel h2{font-size:1.17rem;font-weight:700;letter-spacing:-.015em;margin:0;line-height:1.6}.ds-weather-panel p{color:var(--muted,#587089);font-size:.82rem;line-height:1.65;margin:4px 0 0}@media(max-width:760px){.ds-weather-panel{padding:20px 16px}.ds-weather-panel h2{font-size:1.1rem}}"
+    }
+  ],
+  "narrative": {
+    "overview": "Bright, clean white and blue is the explicit user direction. The interface uses readable Thai typography, clear weather values and restrained surfaces. Mobile should be immediately understandable; desktop should support efficient monitoring.\n\nPreserve the อากาศไทย identity and the four routes: วันนี้, แผนที่, ประกาศ and สถิติ. Light is the default, with the existing optional saved dark theme retained. This document records the implemented system, not an approved design comp or a new branding metaphor.",
+    "keyCharacteristics": ["White panels on a pale blue canvas.", "Large weather numbers with readable Thai labels.", "Clear controls and compact monitoring views."],
+    "rules": [],
+    "dos": ["Do preserve the bright white and blue direction and readable Thai hierarchy.", "Do keep source labels, timestamps and missing-data states visible.", "Do maintain the four routes and usable mobile navigation."],
+    "donts": ["Don't replace missing readings with invented values.", "Don't let decoration obscure weather values or monitoring controls.", "Don't turn the optional dark theme into the default visual direction."]
+  }
+}

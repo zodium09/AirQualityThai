@@ -37,6 +37,7 @@ export default function RainNowcast({ coords, current, locationLabel, minutely, 
   const [alertsEnabled, setAlertsEnabled] = useState(() => localStorage.getItem(ALERTS_KEY) === '1');
   const { isSupported, permission, requestPermission, sendLocalNotification } = usePushNotification();
   const notifiedRef = useRef(localStorage.getItem(LAST_ALERT_KEY) || '');
+  const activeRequest = useRef(null);
 
   const requestBody = useMemo(() => ({
     lat: Number(coords?.lat),
@@ -50,6 +51,9 @@ export default function RainNowcast({ coords, current, locationLabel, minutely, 
 
   const loadNowcast = useCallback(async (signal) => {
     if (!Number.isFinite(requestBody.lat) || !Number.isFinite(requestBody.lon)) return;
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
     setLoading(true);
     setError('');
     onSummaryChange?.({ label: 'กำลังสแกนฝน', tone: 'loading' });
@@ -58,19 +62,20 @@ export default function RainNowcast({ coords, current, locationLabel, minutely, 
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(requestBody),
-        signal,
+        signal: AbortSignal.any([controller.signal, ...(signal ? [signal] : []), AbortSignal.timeout(30000)]),
       });
       if (!response.ok) throw new Error(`ระบบเรดาร์ตอบกลับ ${response.status}`);
       const payload = await response.json();
+      if (activeRequest.current !== controller || signal?.aborted) return;
       setData(payload);
       onSummaryChange?.(compactRadarSummary(payload));
     } catch (loadError) {
-      if (loadError.name !== 'AbortError') {
+      if (loadError.name !== 'AbortError' && activeRequest.current === controller && !signal?.aborted) {
         setError('เชื่อมต่อการวิเคราะห์เรดาร์ไม่ได้ชั่วคราว');
         onSummaryChange?.({ label: 'เรดาร์ไม่พร้อม', tone: 'fallback' });
       }
     } finally {
-      if (!signal?.aborted) setLoading(false);
+      if (!signal?.aborted && activeRequest.current === controller) setLoading(false);
     }
   }, [onSummaryChange, requestBody]);
 
@@ -78,21 +83,23 @@ export default function RainNowcast({ coords, current, locationLabel, minutely, 
     const controller = new AbortController();
     loadNowcast(controller.signal);
     const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') loadNowcast();
+      if (document.visibilityState === 'visible') loadNowcast(controller.signal);
     }, 10 * 60 * 1000);
     const onVisibility = () => {
-      if (document.visibilityState === 'visible' && Date.now() - refreshToken > 5 * 60 * 1000) loadNowcast();
+      if (document.visibilityState === 'visible' && Date.now() - refreshToken > 5 * 60 * 1000) loadNowcast(controller.signal);
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       controller.abort();
+      activeRequest.current?.abort();
+      activeRequest.current = null;
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [loadNowcast, refreshToken]);
 
   useEffect(() => {
-    if (!alertsEnabled || permission !== 'granted' || !data || data.unavailable || data.alertLevel < 2) return;
+    if (loading || error || !alertsEnabled || permission !== 'granted' || !data || data.unavailable || data.alertLevel < 2) return;
     const alertId = `${requestBody.lat.toFixed(2)}:${requestBody.lon.toFixed(2)}:${data.radarTime}:${data.alertLevel}`;
     if (notifiedRef.current === alertId) return;
     notifiedRef.current = alertId;
@@ -102,7 +109,7 @@ export default function RainNowcast({ coords, current, locationLabel, minutely, 
       tag: 'rain-nowcast-location',
       data: { url: '/' },
     });
-  }, [alertsEnabled, data, permission, requestBody.lat, requestBody.lon, sendLocalNotification]);
+  }, [alertsEnabled, data, error, loading, permission, requestBody.lat, requestBody.lon, sendLocalNotification]);
 
   const enableAlerts = async () => {
     const result = await requestPermission();
@@ -118,11 +125,10 @@ export default function RainNowcast({ coords, current, locationLabel, minutely, 
 
   const refresh = () => {
     setRefreshToken(Date.now());
-    loadNowcast();
   };
 
   const nowcast = data?.nowcast || {};
-  const tone = alertTone(data?.alertLevel || 0, data?.unavailable);
+  const tone = alertTone(data?.alertLevel || 0, !data || data.unavailable || error);
   const TrendIcon = trendIcon(nowcast.trend);
   const range = Array.isArray(nowcast.rainRangeMm) ? nowcast.rainRangeMm : [0, 0];
 
@@ -141,11 +147,11 @@ export default function RainNowcast({ coords, current, locationLabel, minutely, 
         </div>
       </div>
 
-      {error && !data ? <div className="nowcast-card__error">{error} ระบบยังใช้พยากรณ์ฝน 15 นาทีบนหน้าได้ตามปกติ</div> : (
+      {error || data?.unavailable ? <div className="nowcast-card__error" role="status">{error || 'ภาพเรดาร์ยังไม่พร้อม จึงยังสรุปสถานการณ์ฝนไม่ได้'} · ตรวจพยากรณ์รายชั่วโมงและเวลาบนภาพประกอบ</div> : loading && !data ? <p role="status">กำลังอ่านภาพเรดาร์ ยังสรุปสถานการณ์ฝนไม่ได้</p> : (
         <>
-          <div className="nowcast-card__message"><span aria-hidden="true">{data?.cardIcon || '📡'}</span><div><strong>{data?.cardTag || 'กำลังวิเคราะห์'}</strong><p>{data?.cardDesc || 'กำลังเปรียบเทียบภาพเรดาร์ล่าสุดกับพยากรณ์ฝนทุก 15 นาที'}</p></div></div>
+          <div className="nowcast-card__message"><RadioTower aria-hidden="true" size={28} /><div><strong>{data?.cardTag || 'กำลังวิเคราะห์'}</strong><p>{data?.cardDesc || 'กำลังเปรียบเทียบภาพเรดาร์ย้อนหลัง'}</p></div></div>
           <div className="nowcast-metrics">
-            <article><span><CloudRain size={17} /> ฝน 60 นาที</span><strong>{nowcast.rainNext60MinMm > 0 ? `≈ ${nowcast.rainNext60MinMm} มม.` : nowcast.probability60 >= 30 ? `${nowcast.probability60}%` : 'ยังไม่พบ'}</strong><small>{nowcast.rainNext60MinMm > 0 ? `ช่วง ${range[0]}–${range[1]} มม.` : 'จากเรดาร์ + พยากรณ์ 15 นาที'}</small></article>
+            <article><span><CloudRain size={17} /> ฝน 60 นาที</span><strong>{nowcast.rainNext60MinMm > 0 ? `≈ ${nowcast.rainNext60MinMm} มม.` : nowcast.probability60 >= 30 ? `${nowcast.probability60}%` : 'ยังไม่พบ'}</strong><small>{nowcast.rainNext60MinMm > 0 ? `ช่วง ${range[0]}–${range[1]} มม.` : 'การประเมินจากภาพเรดาร์'}</small></article>
             <article><span><CloudRain size={17} /> ความแรง</span><strong>{data?.diagnostics?.centerIntensity || data?.diagnostics?.intensity || '–'}</strong><small>{nowcast.rainRateMmh > 0 ? `อัตรา ≈ ${nowcast.rainRateMmh} มม./ชม.` : `ใกล้สุด ${data?.diagnostics?.nearestKm ?? '–'} กม.`}</small></article>
             <article><span><Navigation size={17} /> การเคลื่อนที่</span><strong>{nowcast.direction ? `ไปทาง${nowcast.direction}` : 'ทิศทางยังไม่ชัด'}</strong><small>{nowcast.speedKmh ? `ประมาณ ${nowcast.speedKmh} กม./ชม.` : 'รอเฟรมเรดาร์เพิ่ม'}</small></article>
             <article><span><TrendIcon size={17} /> แนวโน้ม</span><strong>{nowcast.trendLabel || 'กำลังประเมิน'}</strong><small>{nowcast.etaMinutes ? `คาดถึงราว ${nowcast.etaMinutes} นาที` : `ความมั่นใจ ${data?.confidence ?? '–'}%`}</small></article>

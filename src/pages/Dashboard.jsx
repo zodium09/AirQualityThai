@@ -1,504 +1,147 @@
-import { createElement, useContext, useEffect, useMemo, useState } from 'react';
-import {
-  ArrowRight,
-  CalendarDays,
-  CloudRain,
-  Droplets,
-  Gauge,
-  LocateFixed,
-  Map,
-  Navigation,
-  RadioTower,
-  SlidersHorizontal,
-  ShieldCheck,
-  Sun,
-  ThermometerSun,
-  Umbrella,
-  Wind,
-} from 'lucide-react';
+import { createElement, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowRight, ArrowUpRight, ChevronDown, Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudMoon, CloudRain, CloudSun, Droplets, Eye, Gauge, Info, LocateFixed, MapPin, Monitor, Moon, RefreshCw, ShieldCheck, Snowflake, Sun, Sunrise, Sunset, Thermometer, Umbrella, Wind } from 'lucide-react';
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Link } from 'react-router-dom';
-import LoadingScreen from '../components/LoadingScreen';
-import RainNowcast from '../components/RainNowcast';
 import { WeatherContext } from '../context/WeatherContext';
 import { useWeatherData } from '../hooks/useWeatherData';
+import { provinces77 } from '../provinces77';
+import { BANGKOK, displayValue as value, finiteOrNull, getWeatherVisual, thaiTime, weatherDate } from '../utils/weatherData';
+import RainNowcast from '../components/RainNowcast';
 
-const LOCATION_KEY = 'air4thai.selectedProvince';
-const DISTRICT_KEY = 'air4thai.selectedDistrict';
-
-const finiteOrNull = (value) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
-function cleanProvinceName(value = '') {
-  return String(value).replace(/^จังหวัด/, '').trim();
+const LOCATION_KEY = 'air4thai.location.v2';
+const provinces = [...provinces77].sort((a, b) => a.n.localeCompare(b.n, 'th'));
+const icons = { sun: Sun, moon: Moon, cloud: Cloud, partly: CloudSun, cloudMoon: CloudMoon, rain: CloudRain, drizzle: CloudDrizzle, storm: CloudLightning, fog: CloudFog, snow: Snowflake, unknown: Cloud };
+const dateLabel = date => new Intl.DateTimeFormat('th-TH', { timeZone: BANGKOK, weekday: 'short', day: 'numeric', month: 'short' }).format(weatherDate(date));
+const cleanName = name => String(name || '').replace(/^จังหวัด/, '').trim();
+function initialLocation() {
+  try {
+    const requested = provinces.find(p => p.n === new URLSearchParams(window.location.search).get('province'));
+    if (requested) return { province: requested.n, label: requested.n, lat: requested.lat, lon: requested.lon, district: '' };
+    const saved = JSON.parse(localStorage.getItem(LOCATION_KEY));
+    if (saved && provinces.some(p => p.n === saved.province) && Number.isFinite(saved.lat) && Number.isFinite(saved.lon) && typeof saved.label === 'string') return saved;
+    const province = provinces.find(p => p.n === cleanName(localStorage.getItem('air4thai.selectedProvince'))) || provinces77[0];
+    return { province: province.n, label: province.n, lat: province.lat, lon: province.lon, district: '' };
+  } catch { return { province: provinces77[0].n, label: provinces77[0].n, lat: provinces77[0].lat, lon: provinces77[0].lon, district: '' }; }
 }
-
-function formatUpdatedAt(value) {
-  if (!value || Number.isNaN(new Date(value).getTime())) return 'ไม่ระบุเวลา';
-  return new Intl.DateTimeFormat('th-TH', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' }).format(new Date(value));
+function WeatherIcon({ code, isDay = true, size = 28 }) {
+  const visual = getWeatherVisual(code, isDay);
+  return createElement(icons[visual.icon], { size, strokeWidth: 1.7, 'aria-hidden': true, className: `wx-icon wx-icon--${visual.icon}` });
 }
-
-function formatDay(value, index) {
-  if (index === 0) return 'วันนี้';
-  if (index === 1) return 'พรุ่งนี้';
-  return new Intl.DateTimeFormat('th-TH', { weekday: 'short' }).format(new Date(`${value}T12:00:00`));
+function Reading({ icon: Icon, label, reading, detail }) {
+  return <div className="wx-reading">{createElement(Icon, { size: 20, 'aria-hidden': true })}<span>{label}</span><strong>{reading}</strong><small>{detail}</small></div>;
 }
-
-function formatHour(value, index) {
-  if (index === 0) return 'ตอนนี้';
-  return new Intl.DateTimeFormat('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
-}
-
-function getAirStatus(pm25) {
-  if (pm25 === null) return { label: 'รอค่าฝุ่น', detail: 'ยังไม่มีข้อมูล PM2.5 ที่ยืนยันได้', tone: 'neutral' };
-  if (pm25 <= 15) return { label: 'อากาศดีมาก', detail: 'ทำกิจกรรมนอกอาคารได้ตามปกติ', tone: 'excellent' };
-  if (pm25 <= 25) return { label: 'อากาศดี', detail: 'คนส่วนใหญ่ออกไปข้างนอกได้', tone: 'good' };
-  if (pm25 <= 37.5) return { label: 'ปานกลาง', detail: 'กลุ่มเสี่ยงควรสังเกตอาการ', tone: 'moderate' };
-  if (pm25 <= 75) return { label: 'เริ่มกระทบสุขภาพ', detail: 'ลดเวลาทำกิจกรรมนอกอาคาร', tone: 'warning' };
-  return { label: 'มีผลกระทบต่อสุขภาพ', detail: 'ควรอยู่ในอาคารและสวมหน้ากากเมื่อออกไป', tone: 'danger' };
-}
-
-function getWeatherSummary(current, pm25) {
-  const feelsLike = finiteOrNull(current?.feelsLike);
-  const rain = finiteOrNull(current?.rainProb) || 0;
-
-  if (pm25 !== null && pm25 > 37.5) {
-    return {
-      title: 'ลดเวลานอกอาคาร',
-      detail: 'ค่าฝุ่นสูงกว่าระดับที่เหมาะกับกิจกรรมกลางแจ้ง โดยเฉพาะเด็ก ผู้สูงอายุ และผู้มีโรคทางเดินหายใจ',
-      action: 'เตรียมหน้ากากกรองฝุ่น',
-      tone: pm25 > 75 ? 'danger' : 'warning',
-      icon: ShieldCheck,
-    };
-  }
-  if (rain >= 60) {
-    return {
-      title: 'เตรียมรับฝน',
-      detail: `โอกาสฝนช่วงนี้ประมาณ ${Math.round(rain)}% ตรวจเส้นทางและพกร่มก่อนออกจากบ้าน`,
-      action: 'พกร่มและเผื่อเวลาเดินทาง',
-      tone: 'rain',
-      icon: Umbrella,
-    };
-  }
-  if (feelsLike !== null && feelsLike >= 39) {
-    return {
-      title: 'อากาศร้อนจัด',
-      detail: `อุณหภูมิที่ร่างกายรู้สึกประมาณ ${Math.round(feelsLike)}°C ควรหลีกเลี่ยงแดดช่วงกลางวัน`,
-      action: 'ดื่มน้ำและพักในที่ร่ม',
-      tone: 'heat',
-      icon: ThermometerSun,
-    };
-  }
-  return {
-    title: 'ออกไปข้างนอกได้',
-    detail: 'ฝุ่นและฝนยังไม่อยู่ในระดับที่ต้องหลีกเลี่ยงกิจกรรมนอกอาคาร',
-    action: 'เช็กช่วงฝนก่อนเดินทางไกล',
-    tone: 'good',
-    icon: Navigation,
-  };
-}
-
-function WeatherGlyph({ code, isDay = true, rain = 0, size = 24 }) {
-  const visual = getWeatherVisual(code, isDay, rain);
-  return <span aria-hidden="true" className="weather-emoji" style={{ fontSize: size }}>{visual.emoji}</span>;
-}
-
-function getWeatherVisual(code, isDay = true, rain = 0) {
-  const value = Number(code);
-  if ([95, 96, 99].includes(value)) return { tone: 'storm', emoji: '⛈️', label: 'พายุฝนฟ้าคะนอง' };
-  if (rain >= 65 || [63, 65, 81, 82].includes(value)) return { tone: 'rain', emoji: '🌧️', label: 'ฝนตก' };
-  if (rain >= 35 || [51, 53, 55, 61, 80].includes(value)) return { tone: 'drizzle', emoji: '🌦️', label: 'มีฝนเป็นช่วง' };
-  if ([45, 48].includes(value)) return { tone: 'mist', emoji: '🌫️', label: 'มีหมอก' };
-  if ([2, 3].includes(value)) return { tone: 'cloudy', emoji: '☁️', label: 'มีเมฆมาก' };
-  if (!isDay) return { tone: 'night', emoji: value <= 1 ? '🌙' : '☁️', label: value <= 1 ? 'ท้องฟ้าโปร่ง' : 'มีเมฆบางส่วน' };
-  if (value === 1) return { tone: 'partly', emoji: '🌤️', label: 'มีเมฆบางส่วน' };
-  return { tone: 'clear', emoji: '☀️', label: 'ท้องฟ้าแจ่มใส' };
-}
-
-function getProvinceMood(province, coords) {
-  const name = cleanProvinceName(province);
-  const lat = Number(coords?.lat);
-  const lon = Number(coords?.lon);
-  if (name.includes('กรุงเทพ')) return 'metro';
-  if (Number.isFinite(lat) && lat < 11.7) return 'south';
-  if (Number.isFinite(lat) && lat >= 17) return 'north';
-  if (Number.isFinite(lon) && Number.isFinite(lat) && lon >= 101.4 && lat >= 14) return 'northeast';
-  if (Number.isFinite(lon) && Number.isFinite(lat) && lon >= 100.7 && lat < 14.7) return 'east';
-  if (Number.isFinite(lon) && lon < 99.7) return 'west';
-  return 'central';
-}
-
-function Metric({ icon: Icon, label, value, detail, tone }) {
-  return (
-    <div className={`metric metric--${tone}`}>
-      <span className="metric__icon">{createElement(Icon, { 'aria-hidden': true, size: 19 })}</span>
-      <div>
-        <span className="metric__label">{label}</span>
-        <strong className="metric__value">{value}</strong>
-        <small>{detail}</small>
-      </div>
-    </div>
-  );
+function HourlyForecast({ hourly, now }) {
+  const [metric, setMetric] = useState('temp');
+  const start = (hourly.time || []).findIndex(time => weatherDate(time).getTime() >= now - 3600000);
+  const hours = start < 0 ? [] : hourly.time.slice(start, start + 24).map((time, offset) => {
+    const i = start + offset;
+    return { time, label: thaiTime(time), temp: finiteOrNull(hourly.temperature_2m?.[i]), rain: finiteOrNull(hourly.precipitation_probability?.[i]), code: hourly.weathercode?.[i], isDay: hourly.is_day?.[i] === 1 };
+  });
+  return <section className="wx-panel wx-hourly" aria-labelledby="hourly-title">
+    <div className="wx-section-head"><div><h2 id="hourly-title">วางแผน 24 ชั่วโมงข้างหน้า</h2><p>ดูจังหวะอากาศ ก่อนออกเดินทาง</p></div><div className="wx-segment" aria-label="ข้อมูลบนกราฟ" role="group">{[['temp', 'อุณหภูมิ'], ['rain', 'โอกาสฝน']].map(([key, label]) => <button type="button" aria-pressed={metric === key} key={key} onClick={() => setMetric(key)}>{label}</button>)}</div></div>
+    {hours.length ? <><div className="wx-chart" role="img" aria-label={`กราฟ${metric === 'temp' ? 'อุณหภูมิ' : 'โอกาสฝน'}รายชั่วโมง ตัวเลขทั้งหมดอ่านได้ในรายการถัดไป`}><ResponsiveContainer width="100%" height="100%"><AreaChart data={hours} margin={{ top: 12, right: 12, bottom: 0, left: -22 }}><defs><linearGradient id="forecast-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2786ed" stopOpacity={0.25} /><stop offset="100%" stopColor="#2786ed" stopOpacity={0.01} /></linearGradient></defs><CartesianGrid vertical={false} stroke="var(--line)" strokeDasharray="3 5" /><XAxis dataKey="label" interval={5} axisLine={false} tickLine={false} tick={{ fill: 'var(--muted)', fontSize: 12 }} /><YAxis domain={metric === 'rain' ? [0, 100] : ['auto', 'auto']} unit={metric === 'rain' ? '%' : '°'} axisLine={false} tickLine={false} tick={{ fill: 'var(--muted)', fontSize: 12 }} /><Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, color: 'var(--ink)' }} formatter={v => [value(v, metric === 'rain' ? '%' : '°C'), metric === 'rain' ? 'โอกาสฝน' : 'อุณหภูมิ']} /><Area isAnimationActive={false} connectNulls={false} type="monotone" dataKey={metric} stroke="#1675df" strokeWidth={2.5} fill="url(#forecast-fill)" /></AreaChart></ResponsiveContainer></div><div className="wx-hour-scroll" tabIndex={0} role="region" aria-label="พยากรณ์รายชั่วโมง เลื่อนแนวนอนเพื่อดูครบ 24 ชั่วโมง"><div className="wx-hours">{hours.map(hour => <div className="wx-hour" key={hour.time}><time dateTime={hour.time}>{hour.label}</time><WeatherIcon code={hour.code} isDay={hour.isDay} /><strong>{value(hour.temp, '°')}</strong><span><Droplets size={12} aria-hidden="true" />{value(hour.rain, '%')}</span></div>)}</div></div><p className="wx-footnote">เวลาไทย (UTC+7) · เปอร์เซ็นต์คือโอกาสฝน ไม่ใช่ปริมาณฝน</p></> : <p className="wx-empty">ไม่มีพยากรณ์รายชั่วโมงที่ยังใช้ได้ ลองอัปเดตข้อมูล</p>}
+  </section>;
 }
 
 export default function Dashboard() {
-  const { amphoeData, lastUpdated, stations, weatherMeta } = useContext(WeatherContext);
-  const { weatherData, loadingWeather, fetchWeatherByCoords } = useWeatherData();
-  const [selectedProvince, setSelectedProvince] = useState(() => localStorage.getItem(LOCATION_KEY) || 'กรุงเทพมหานคร');
-  const [locationLabel, setLocationLabel] = useState(() => localStorage.getItem(LOCATION_KEY) || 'กรุงเทพมหานคร');
-  const [selectedDistrict, setSelectedDistrict] = useState(() => localStorage.getItem(DISTRICT_KEY) || '');
+  const { amphoeData, stations, stationTemps, weatherMeta, lastUpdated } = useContext(WeatherContext);
+  const { weatherData, loadingWeather, weatherError, fetchWeatherByCoords } = useWeatherData();
+  const [location, setLocation] = useState(initialLocation);
+  const [locationOpen, setLocationOpen] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState('');
-  const [geoDistricts, setGeoDistricts] = useState([]);
-  const [radarLoaded, setRadarLoaded] = useState(false);
-  const [radarSummary, setRadarSummary] = useState({ label: 'กำลังสแกนฝน', tone: 'loading' });
-  const [locationControlsOpen, setLocationControlsOpen] = useState(false);
-
-  const sortedStations = useMemo(() => [...(stations || [])].sort((a, b) => a.areaTH.localeCompare(b.areaTH, 'th')), [stations]);
-  const districts = useMemo(() => {
-    const provinceKey = cleanProvinceName(selectedProvince);
-    const provinces = amphoeData?.provinces || {};
-    const province = provinces[provinceKey]
-      || provinces[selectedProvince]
-      || Object.entries(provinces).find(([name]) => cleanProvinceName(name) === provinceKey)?.[1];
-    const tmdDistricts = (province?.amphoes || []).map((item) => ({
-      name: String(item.n || item.name || '').trim(),
-      lat: finiteOrNull(item.lat),
-      lon: finiteOrNull(item.lon ?? item.lng ?? item.long),
-    })).filter((item) => item.name);
-    if (tmdDistricts.length) return tmdDistricts.sort((a, b) => a.name.localeCompare(b.name, 'th'));
-
-    const fallbackProvince = geoDistricts.find((item) => cleanProvinceName(item.name_th || item.name || '') === provinceKey);
-    return (fallbackProvince?.districts || []).map((item) => ({
-      name: String(item.name_th || item.name || '').trim(),
-      lat: null,
-      lon: null,
-    })).filter((item) => item.name).sort((a, b) => a.name.localeCompare(b.name, 'th'));
-  }, [amphoeData, geoDistricts, selectedProvince]);
-
-  const radarSrc = useMemo(() => {
-    const lat = Number(weatherData?.coords?.lat || 13.75);
-    const lon = Number(weatherData?.coords?.lon || 100.5);
-    return `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&detailLat=${lat}&detailLon=${lon}&zoom=8&level=surface&overlay=radar&product=radar&menu=&message=true&marker=true`;
-  }, [weatherData?.coords?.lat, weatherData?.coords?.lon]);
-
+  const [geo, setGeo] = useState([]);
+  const [now, setNow] = useState(Date.now);
+  const [radarOpen, setRadarOpen] = useState(false);
+  const locationRequest = useRef(0);
+  const geocode = useRef(null);
   useEffect(() => {
-    const station = sortedStations.find((item) => cleanProvinceName(item.areaTH) === cleanProvinceName(selectedProvince))
-      || sortedStations.find((item) => cleanProvinceName(item.areaTH) === 'กรุงเทพมหานคร');
-    if (!station) return;
-    fetchWeatherByCoords(Number(station.lat), Number(station.long));
-    setLocationLabel(cleanProvinceName(station.areaTH));
-  }, [fetchWeatherByCoords, selectedProvince, sortedStations]);
-
+    try { localStorage.setItem(LOCATION_KEY, JSON.stringify(location)); localStorage.setItem('air4thai.selectedProvince', location.province); } catch { /* Optional preference. */ }
+  }, [location]);
   useEffect(() => {
-    if (amphoeData?.provinces || geoDistricts.length) return undefined;
+    fetchWeatherByCoords(location.lat, location.lon);
+    const refresh = () => { if (document.visibilityState === 'visible') { setNow(Date.now()); fetchWeatherByCoords(location.lat, location.lon); } };
+    const timer = setInterval(refresh, 600000);
+    const clock = setInterval(() => setNow(Date.now()), 60000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { clearInterval(timer); clearInterval(clock); document.removeEventListener('visibilitychange', refresh); };
+  }, [location.lat, location.lon, fetchWeatherByCoords]);
+  useEffect(() => {
     const controller = new AbortController();
-    fetch('/thai_geo.json', { signal: controller.signal })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error(`Geo ${response.status}`)))
-      .then((data) => setGeoDistricts(Array.isArray(data) ? data : (data?.data || [])))
-      .catch((error) => {
-        if (error.name !== 'AbortError') console.warn('District fallback unavailable:', error.message);
-      });
-    return () => controller.abort();
-  }, [amphoeData, geoDistricts.length]);
-
-  useEffect(() => {
-    if (!selectedDistrict) return;
-    const district = districts.find((item) => item.name === selectedDistrict);
-    if (!district || !Number.isFinite(district.lat) || !Number.isFinite(district.lon)) return;
-    fetchWeatherByCoords(district.lat, district.lon);
-    setLocationLabel(`${district.name}, ${cleanProvinceName(selectedProvince)}`);
-  }, [districts, fetchWeatherByCoords, selectedDistrict, selectedProvince]);
-
-  useEffect(() => {
-    setRadarLoaded(false);
-  }, [radarSrc]);
-
-  useEffect(() => {
-    if (locationError) setLocationControlsOpen(true);
-  }, [locationError]);
-
-  const handleProvinceChange = (event) => {
-    const next = event.target.value;
-    setSelectedProvince(next);
-    setLocationLabel(cleanProvinceName(next));
-    setLocationError('');
-    setSelectedDistrict('');
-    localStorage.setItem(LOCATION_KEY, next);
-    localStorage.removeItem(DISTRICT_KEY);
-    setLocationControlsOpen(false);
+    fetch('/thai_geo.json', { signal: controller.signal }).then(r => r.ok ? r.json() : []).then(data => setGeo(Array.isArray(data) ? data : [])).catch(() => {});
+    return () => { controller.abort(); geocode.current?.abort(); locationRequest.current += 1; };
+  }, []);
+  const districts = useMemo(() => {
+    const tmd = Object.entries(amphoeData?.provinces || {}).find(([name]) => cleanName(name) === location.province)?.[1]?.amphoes || [];
+    if (tmd.length) return tmd.map(d => ({ name: d.n || d.name, lat: finiteOrNull(d.lat), lon: finiteOrNull(d.lon ?? d.lng ?? d.long) })).sort((a, b) => a.name.localeCompare(b.name, 'th'));
+    return (geo.find(p => cleanName(p.name_th || p.name) === location.province)?.districts || []).map(d => ({ name: d.name_th || d.name, lat: null, lon: null }));
+  }, [amphoeData, geo, location.province]);
+  const chooseProvince = name => {
+    locationRequest.current += 1;
+    geocode.current?.abort();
+    const province = provinces.find(p => p.n === name);
+    if (!province) return;
+    setLocation({ province: name, label: name, lat: province.lat, lon: province.lon, district: '' });
+    setLocationError(''); setLocating(false);
   };
-
-  const handleDistrictChange = async (event) => {
-    const next = event.target.value;
-    setSelectedDistrict(next);
-    setLocationError('');
-    if (next) localStorage.setItem(DISTRICT_KEY, next);
-    else localStorage.removeItem(DISTRICT_KEY);
-    setLocationControlsOpen(false);
-    if (!next) {
-      const station = sortedStations.find((item) => cleanProvinceName(item.areaTH) === cleanProvinceName(selectedProvince));
-      if (station) fetchWeatherByCoords(Number(station.lat), Number(station.long));
-      setLocationLabel(cleanProvinceName(selectedProvince));
-      return;
-    }
-
-    setLocationLabel(`${next}, ${cleanProvinceName(selectedProvince)}`);
-    const district = districts.find((item) => item.name === next);
-    if (Number.isFinite(district?.lat) && Number.isFinite(district?.lon)) return;
-
+  const chooseDistrict = async name => {
+    if (!name) { chooseProvince(location.province); return; }
+    const request = ++locationRequest.current;
+    geocode.current?.abort();
+    const controller = new AbortController(); geocode.current = controller;
+    const district = districts.find(d => d.name === name);
+    setLocating(true); setLocationError('');
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${next} ${cleanProvinceName(selectedProvince)} ประเทศไทย`)}&limit=1`, { headers: { Accept: 'application/json' } });
-      if (!response.ok) throw new Error(`ค้นหาพิกัด ${response.status}`);
-      const results = await response.json();
-      const lat = Number(results?.[0]?.lat);
-      const lon = Number(results?.[0]?.lon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error('ไม่พบพิกัด');
-      fetchWeatherByCoords(lat, lon);
-    } catch {
-      setLocationError('เลือกอำเภอแล้ว แต่ยังหาพิกัดไม่ได้ ระบบจะแสดงข้อมูลระดับจังหวัดแทน');
-    }
+      let lat = district?.lat, lon = district?.lon;
+      if (lat === null || lon === null || lat === undefined || lon === undefined) {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&countrycodes=th&limit=1&q=${encodeURIComponent(`${name} ${location.province} ประเทศไทย`)}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) });
+        if (!response.ok) throw new Error('geocode');
+        const results = await response.json(); lat = finiteOrNull(results[0]?.lat); lon = finiteOrNull(results[0]?.lon);
+      }
+      if (lat === null || lon === null) throw new Error('coordinates');
+      if (request === locationRequest.current) { setLocation(previous => ({ ...previous, district: name, label: `${name}, ${previous.province}`, lat, lon })); setLocationOpen(false); }
+    } catch { if (request === locationRequest.current) setLocationError('หาพิกัดอำเภอนี้ไม่ได้ ยังแสดงพื้นที่เดิมอยู่ กรุณาลองอีกครั้ง'); }
+    finally { if (request === locationRequest.current) setLocating(false); }
   };
-
-  const handleUseLocation = () => {
-    if (!navigator.geolocation) {
-      setLocationError('อุปกรณ์นี้ไม่รองรับการระบุตำแหน่ง');
-      return;
-    }
-    setLocating(true);
-    setLocationError('');
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        fetchWeatherByCoords(coords.latitude, coords.longitude);
-        setLocationLabel('ตำแหน่งปัจจุบัน');
-        setSelectedDistrict('');
-        setLocating(false);
-        setLocationControlsOpen(false);
-      },
-      () => {
-        setLocationError('ไม่สามารถใช้ตำแหน่งได้ กรุณาอนุญาตสิทธิ์หรือลองเลือกจังหวัด');
-        setLocating(false);
-      },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
-    );
+  const useLocation = () => {
+    if (!navigator.geolocation) { setLocationError('อุปกรณ์ไม่รองรับการระบุตำแหน่ง เลือกจังหวัดแทนได้'); return; }
+    const request = ++locationRequest.current; geocode.current?.abort(); setLocating(true); setLocationError('');
+    navigator.geolocation.getCurrentPosition(({ coords }) => {
+      if (request !== locationRequest.current) return;
+      setLocation(previous => ({ ...previous, lat: coords.latitude, lon: coords.longitude, label: 'ตำแหน่งปัจจุบันของคุณ', district: '' })); setLocating(false); setLocationOpen(false);
+    }, () => { if (request === locationRequest.current) { setLocationError('เข้าถึงตำแหน่งไม่ได้ กรุณาอนุญาตสิทธิ์ หรือเลือกจังหวัดด้านล่าง'); setLocating(false); setLocationOpen(true); } }, { timeout: 10000, maximumAge: 300000 });
   };
+  const c = weatherData?.current || {};
+  const daily = weatherData?.daily || {};
+  const stale = weatherData?.stale || (weatherData && now - weatherDate(weatherData.observedAt).getTime() > 5400000);
+  const visual = getWeatherVisual(c.weatherCode, c.isDay);
+  const todayKey = new Intl.DateTimeFormat('en-CA', { timeZone: BANGKOK, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const days = (daily.time || []).map((date, i) => ({ date, code: daily.weathercode?.[i], high: finiteOrNull(daily.temperature_2m_max?.[i]), low: finiteOrNull(daily.temperature_2m_min?.[i]), rain: finiteOrNull(daily.precipitation_probability_max?.[i]), mm: finiteOrNull(daily.precipitation_sum?.[i]) })).filter(day => day.date >= todayKey);
+  const temperatures = days.flatMap(day => [day.high, day.low]).filter(v => v !== null);
+  const low = temperatures.length ? Math.min(...temperatures) : 0;
+  const range = Math.max(1, (temperatures.length ? Math.max(...temperatures) : 1) - low);
+  const knownProvinces = stations.filter(station => finiteOrNull(stationTemps[station.stationID]?.temp) !== null).length;
+  const nextRain = (weatherData?.hourly?.time || []).map((time, i) => ({ time, probability: finiteOrNull(weatherData.hourly.precipitation_probability?.[i]) })).find(h => weatherDate(h.time).getTime() >= now && weatherDate(h.time).getTime() < now + 43200000 && h.probability !== null && h.probability >= 50);
+  const advice = stale ? 'ข้อมูลเดิม โปรดเช็กเวลา' : c.rainProb >= 60 ? 'พกร่ม เผื่อเวลาเดินทาง' : c.feelsLike >= 39 ? 'อากาศร้อน พักในที่ร่ม' : c.pm25 > 37.5 ? 'ติดตามค่าฝุ่นก่อนออกไป' : 'พร้อมวางแผนวันของคุณ';
+  const refresh = () => { setNow(Date.now()); fetchWeatherByCoords(location.lat, location.lon); };
 
-  if (!weatherData || loadingWeather) {
-    return <LoadingScreen title="กำลังดูอากาศวันนี้" subtitle={`เตรียมข้อมูลของ${locationLabel}`} />;
-  }
-
-  const { current, daily, hourly, minutely } = weatherData;
-  const pm25 = finiteOrNull(current?.pm25);
-  const air = getAirStatus(pm25);
-  const summary = getWeatherSummary(current, pm25);
-  const weatherVisual = getWeatherVisual(current?.weatherCode, current?.isDay, current?.rainProb);
-  const provinceMood = getProvinceMood(selectedProvince, weatherData.coords);
-  const SummaryIcon = summary.icon;
-  const now = Date.now();
-  const firstHour = Math.max(0, hourly?.time?.findIndex((time) => new Date(time).getTime() >= now - 30 * 60 * 1000) || 0);
-  const hours = (hourly?.time || []).slice(firstHour, firstHour + 12).map((time, index) => {
-    const sourceIndex = firstHour + index;
-    return {
-      time,
-      temp: Math.round(finiteOrNull(hourly.temperature_2m?.[sourceIndex]) || 0),
-      rain: Math.round(finiteOrNull(hourly.precipitation_probability?.[sourceIndex]) || 0),
-      code: Number(hourly.weathercode?.[sourceIndex] ?? current?.weatherCode),
-    };
-  });
-  const days = (daily?.time || []).slice(0, 7).map((time, index) => ({
-    time,
-    code: daily.weathercode?.[index],
-    high: Math.round(finiteOrNull(daily.temperature_2m_max?.[index]) || 0),
-    low: Math.round(finiteOrNull(daily.temperature_2m_min?.[index]) || 0),
-    rain: Math.round(finiteOrNull(daily.precipitation_probability_max?.[index]) || 0),
-    pm25: finiteOrNull(daily.pm25_max?.[index]),
-  }));
-  const sourceIsFallback = Boolean(weatherData.fallback || current?.fallback || weatherMeta?.source === 'deterministic-fallback' || weatherMeta?.source === 'unavailable');
-  const updatedText = formatUpdatedAt(lastUpdated || new Date());
-
-  return (
-    <div className="page dashboard-page">
-      <div className="page__inner">
-        <section className={`location-bar${locationControlsOpen ? ' is-open' : ''}`} aria-label="เลือกพื้นที่">
-          <div className="location-bar__title">
-            <span className="location-bar__icon"><Map aria-hidden="true" size={18} /></span>
-            <div>
-              <small>พื้นที่ที่กำลังดู</small>
-              <strong>{locationLabel}</strong>
-            </div>
-          </div>
-          <button
-            aria-expanded={locationControlsOpen}
-            aria-label={locationControlsOpen ? 'ซ่อนตัวกรองพื้นที่' : 'เปิดตัวกรองพื้นที่'}
-            className="location-bar__toggle"
-            onClick={() => setLocationControlsOpen((value) => !value)}
-            type="button"
-          >
-            <SlidersHorizontal aria-hidden="true" size={17} />
-          </button>
-          <div className="location-bar__controls">
-            <label className="select-field">
-              <span className="sr-only">เลือกจังหวัด</span>
-              <select onChange={handleProvinceChange} value={selectedProvince}>
-                {sortedStations.map((station) => (
-                  <option key={station.stationID} value={station.areaTH}>{cleanProvinceName(station.areaTH)}</option>
-                ))}
-              </select>
-            </label>
-            {districts.length > 0 && (
-              <label className="select-field select-field--district">
-                <span className="sr-only">เลือกอำเภอหรือเขต</span>
-                <select onChange={handleDistrictChange} value={selectedDistrict}>
-                  <option value="">ทั้งจังหวัด</option>
-                  {districts.map((district) => <option key={district.name} value={district.name}>{district.name}</option>)}
-                </select>
-              </label>
-            )}
-            <button className="button button--secondary button--compact" disabled={locating} onClick={handleUseLocation} type="button">
-              <LocateFixed aria-hidden="true" size={17} /> {locating ? 'กำลังค้นหา' : 'ใช้ตำแหน่งฉัน'}
-            </button>
-          </div>
-          {locationError && <p className="field-error" role="alert">{locationError}</p>}
-        </section>
-
-        <section className={`today-hero today-hero--${weatherVisual.tone} today-hero--region-${provinceMood}`}>
-          <div aria-hidden="true" className="weather-scene">
-            <span className="weather-scene__sun">{weatherVisual.tone === 'night' ? '🌙' : '☀️'}</span>
-            <span className="weather-scene__cloud">☁️</span>
-            <span className="weather-scene__wind">〰️</span>
-          </div>
-          <div className="today-hero__main">
-            <div className="data-line">
-              <span className={`status-dot ${sourceIsFallback ? 'is-fallback' : 'is-live'}`} />
-              {sourceIsFallback ? 'ข้อมูลประมาณการสำรอง' : 'ข้อมูลล่าสุด'} · อัปเดต {updatedText}
-            </div>
-            <div className="today-hero__weather">
-              <span className="weather-symbol">
-                <WeatherGlyph code={current?.weatherCode} isDay={current?.isDay} rain={current?.rainProb} size={48} />
-              </span>
-              <div>
-                <p className="today-hero__place">{locationLabel}</p>
-                <div className="today-hero__temperature">{Math.round(current?.temp)}<span>°</span></div>
-                <p>{weatherVisual.label} · รู้สึกเหมือน {Math.round(current?.feelsLike)}°C · ฝน {Math.round(current?.rainProb || 0)}%</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="today-hero__decision">
-            <span className="decision-icon"><SummaryIcon aria-hidden="true" size={24} /></span>
-            <span className={`hero-radar-alert hero-radar-alert--${radarSummary.tone}`} title="สรุปคำเตือนจากเรดาร์ฝนตอนนี้">
-              <CloudRain aria-hidden="true" size={13} /> {radarSummary.label}
-            </span>
-            <div>
-              <span className="section-label">คำแนะนำตอนนี้</span>
-              <h1>{summary.title}</h1>
-              <p>{summary.detail}</p>
-              <strong>{summary.action}</strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="radar-disclosure">
-          <div className="radar-disclosure__intro">
-            <span className="radar-disclosure__icon"><RadioTower aria-hidden="true" size={22} /></span>
-            <div>
-              <span className="section-label">ดูฝนแบบเรียลไทม์</span>
-              <h2>เรดาร์ฝนใกล้ {locationLabel}</h2>
-              <p>ดูทิศทางกลุ่มฝนแบบเรียลไทม์เพื่อวางแผนก่อนเดินทาง</p>
-            </div>
-          </div>
-          <div className="radar-frame">
-            {!radarLoaded && <div className="radar-frame__loading"><RadioTower aria-hidden="true" size={22} /><span>กำลังเชื่อมต่อภาพเรดาร์</span></div>}
-            <iframe allowFullScreen loading="eager" onLoad={() => setRadarLoaded(true)} src={radarSrc} title={`เรดาร์ฝนใกล้ ${locationLabel}`} />
-          </div>
-        </section>
-
-        <RainNowcast
-          coords={weatherData.coords}
-          current={current}
-          locationLabel={locationLabel}
-          minutely={minutely}
-          onSummaryChange={setRadarSummary}
-          onUseLocation={handleUseLocation}
-        />
-
-        <section aria-labelledby="conditions-title" className="section-block section-block--conditions">
-          <div className="section-heading">
-            <div>
-              <span className="section-label">สถานการณ์สำคัญ</span>
-              <h2 id="conditions-title">สิ่งที่ควรรู้ก่อนออกไป</h2>
-            </div>
-            <Link className="text-link" to="/map">ดูบนแผนที่ <ArrowRight aria-hidden="true" size={16} /></Link>
-          </div>
-
-          <div className="condition-grid">
-            <article className={`condition-primary tone-${air.tone}`}>
-              <div className="condition-primary__top">
-                <span className="condition-icon"><Gauge aria-hidden="true" size={22} /></span>
-                <span>PM2.5</span>
-              </div>
-              <div className="condition-primary__value">{pm25 === null ? '–' : Math.round(pm25)}<small>µg/m³</small></div>
-              <h3>{air.label}</h3>
-              <p>{air.detail}</p>
-            </article>
-
-            <div className="metrics-panel">
-              <Metric detail={current?.humidity >= 75 ? 'ค่อนข้างชื้น' : 'อยู่ในเกณฑ์ทั่วไป'} icon={Droplets} label="ความชื้น" tone="humidity" value={`${Math.round(current?.humidity || 0)}%`} />
-              <Metric detail={current?.windSpeed >= 20 ? 'ลมค่อนข้างแรง' : 'ลมไม่แรง'} icon={Wind} label="ลม" tone="wind" value={`${Math.round(current?.windSpeed || 0)} กม./ชม.`} />
-              <Metric detail={current?.uv >= 8 ? 'ควรหลบแดด' : current?.uv >= 3 ? 'ทากันแดด' : 'รังสีต่ำ'} icon={Sun} label="รังสี UV" tone="sun" value={Math.round(current?.uv || 0)} />
-              <Metric detail="ความกดอากาศ" icon={Gauge} label="ความกด" tone="pressure" value={`${Math.round(current?.pressure || 0)} hPa`} />
-            </div>
-          </div>
-        </section>
-
-        <section aria-labelledby="hourly-title" className="section-block section-block--hourly">
-          <div className="section-heading">
-            <div>
-              <span className="section-label">12 ชั่วโมงข้างหน้า</span>
-              <h2 id="hourly-title">ฝนจะมาเมื่อไร</h2>
-            </div>
-            <span className="section-note"><CloudRain aria-hidden="true" size={16} /> ตัวเลขคือโอกาสฝน</span>
-          </div>
-          <div className="hourly-strip" role="list">
-            {hours.map((hour, index) => (
-              <div className={`hour-cell${hour.rain >= 60 ? ' is-rainy' : ''}`} key={hour.time} role="listitem" style={{ '--rain-level': `${hour.rain}%` }}>
-                <span>{formatHour(hour.time, index)}</span>
-                <WeatherGlyph code={hour.code} rain={hour.rain} size={21} />
-                <strong>{hour.temp}°</strong>
-                <small>{hour.rain}%</small>
-                <span aria-hidden="true" className="hour-cell__rainbar"><i /></span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section aria-labelledby="weekly-title" className="section-block section-block--weekly">
-          <div className="section-heading">
-            <div>
-              <span className="section-label">มองล่วงหน้า</span>
-              <h2 id="weekly-title">7 วันจากนี้</h2>
-            </div>
-            <span className="section-note"><CalendarDays aria-hidden="true" size={16} /> พยากรณ์รายวัน</span>
-          </div>
-          <div className="forecast-list">
-            {days.map((day, index) => (
-              <div className="forecast-row" key={day.time}>
-                <strong>{formatDay(day.time, index)}</strong>
-                <span className="forecast-row__date">{new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short' }).format(new Date(`${day.time}T12:00:00`))}</span>
-                <span className="forecast-row__weather"><WeatherGlyph code={day.code} rain={day.rain} size={20} /> ฝน {day.rain}%</span>
-                <span className="forecast-row__air">PM2.5 {day.pm25 === null ? '–' : Math.round(day.pm25)}</span>
-                <span className="forecast-row__temp"><b>{day.high}°</b> / {day.low}°</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <aside className="source-note">
-          <ShieldCheck aria-hidden="true" size={18} />
-          <p><strong>รู้ที่มาของข้อมูล:</strong> อากาศรายพื้นที่ใช้ Open-Meteo และ Air Quality API ส่วนภาพรวมประเทศใช้ข้อมูลที่ระบบรวบรวมจากสถานีและแหล่งสำรอง ค่าพยากรณ์อาจเปลี่ยนได้เมื่อมีข้อมูลรอบใหม่</p>
-        </aside>
-      </div>
+  return <div className="wx-page">
+    <header className="wx-page-head"><div><p className="wx-date">{dateLabel(now)}</p><h1>วันนี้ อากาศเป็นอย่างไร</h1></div><Link className="wx-monitor-link" to="/map?monitor=1"><Monitor size={17} aria-hidden="true" /> มอนิเตอร์ประเทศ <ArrowUpRight size={16} aria-hidden="true" /></Link></header>
+    <section className="wx-location" aria-label="เลือกพื้นที่พยากรณ์"><button className="wx-place-button" type="button" onClick={() => setLocationOpen(!locationOpen)} aria-expanded={locationOpen} aria-controls="location-controls"><MapPin size={21} aria-hidden="true" /><span><strong>{location.label}</strong><small>เปลี่ยนพื้นที่ <ChevronDown size={13} aria-hidden="true" /></small></span></button><div className="wx-location-actions"><button className="wx-button wx-button--quiet" disabled={locating} onClick={useLocation} type="button"><LocateFixed size={17} aria-hidden="true" /><span>{locating ? 'กำลังค้นหา' : 'ใกล้ฉัน'}</span></button><button className="wx-button wx-button--quiet" disabled={loadingWeather} onClick={refresh} type="button" aria-label="อัปเดตข้อมูลอากาศ"><RefreshCw size={17} className={loadingWeather ? 'is-spinning' : ''} aria-hidden="true" /><span className="wx-refresh-label">อัปเดต</span></button></div>
+    {locationOpen && <div className="wx-location-controls" id="location-controls"><label>จังหวัด<select value={location.province} onChange={event => chooseProvince(event.target.value)}>{provinces.map(p => <option key={p.n}>{p.n}</option>)}</select></label><label>อำเภอ / เขต<select value={location.district} disabled={locating || !districts.length} onChange={event => chooseDistrict(event.target.value)}><option value="">จุดอ้างอิงจังหวัด</option>{districts.map(d => <option key={d.name}>{d.name}</option>)}</select></label><p><Info size={14} aria-hidden="true" /> พยากรณ์ตามพิกัดที่เลือก สภาพจริงอาจต่างกันในแต่ละจุด</p></div>}
+    {locationError && <p className="wx-message" role="alert">{locationError}</p>}</section>
+    {weatherError && <div className="wx-message" role="status"><Info size={18} aria-hidden="true" />{weatherError}</div>}
+    {!weatherData ? <section className="wx-panel wx-unavailable" aria-live="polite">{loadingWeather ? <RefreshCw className="is-spinning" size={34} /> : <Cloud size={42} />}<h2>{loadingWeather ? 'กำลังอ่านท้องฟ้าของคุณ' : 'ยังไม่มีข้อมูลอากาศของพื้นที่นี้'}</h2><p>{loadingWeather ? 'กำลังเชื่อมต่อพยากรณ์อากาศและคุณภาพอากาศ' : 'เมื่อเชื่อมต่อได้ จะแสดงค่าพยากรณ์พร้อมเวลาของข้อมูล'}</p>{!loadingWeather && <button className="wx-button" type="button" onClick={refresh}><RefreshCw size={17} /> ลองอีกครั้ง</button>}</section> : <>
+    <div className="wx-overview">
+      <section className="wx-current" aria-label="สภาพอากาศปัจจุบัน"><div className="wx-current-status"><span className={`wx-status${stale ? ' wx-status--stale' : ''}`}><i />{stale ? 'ข้อมูลเดิม' : 'ค่าจากแบบจำลอง'}</span><span>เวลา {thaiTime(weatherData.observedAt, { day: 'numeric', month: 'short' })} น.</span></div><div className="wx-current-body"><div><h2>{visual.label}</h2><div className="wx-temperature">{value(c.temp)}<span>°C</span></div><p>รู้สึกเหมือน <strong>{value(c.feelsLike, '°')}</strong><span className="wx-dot-separator">·</span>สูง {value(days[0]?.high, '°')} / ต่ำ {value(days[0]?.low, '°')}</p></div><div className="wx-current-icon"><WeatherIcon code={c.weatherCode} isDay={c.isDay} size={64} /><span>{c.isDay ? 'เวลากลางวัน' : 'เวลากลางคืน'}</span></div></div><div className="wx-current-bottom"><span><Sunrise size={17} aria-hidden="true" /> {thaiTime(c.sunrise)}</span><span><Sunset size={17} aria-hidden="true" /> {thaiTime(c.sunset)}</span><span>เวลาประเทศไทย</span></div></section>
+      <aside className="wx-brief"><h2>ก่อนออกจากบ้าน</h2><h3>{advice}</h3><div className="wx-brief-row"><Umbrella size={21} aria-hidden="true" /><div><strong>โอกาสฝนชั่วโมงนี้ {value(c.rainProb, '%')}</strong><p>{nextRain ? `มีโอกาสฝน ${value(nextRain.probability, '%')} ช่วง ${thaiTime(nextRain.time)} น.` : 'ดูแนวโน้มรายชั่วโมงเพื่อวางแผนเดินทาง'}</p></div></div><div className="wx-brief-row"><Wind size={21} aria-hidden="true" /><div><strong>PM2.5 {value(c.pm25, ' µg/m³', 1)}</strong><p>{c.pm25 === null ? 'ข้อมูลฝุ่นยังไม่พร้อม' : 'ค่าประมาณจาก CAMS · ไม่ใช่ AQI สถานี'}</p></div></div><a className="wx-inline-link" href="#weather-details">ดูรายละเอียดอากาศ <ArrowRight size={15} aria-hidden="true" /></a></aside>
     </div>
-  );
+    <section className="wx-readings" id="weather-details" aria-label="รายละเอียดอากาศ"><Reading icon={Droplets} label="ความชื้น" reading={value(c.humidity, '%')} detail="ความชื้นสัมพัทธ์" /><Reading icon={Wind} label="ความเร็วลม" reading={value(c.windSpeed, ' กม./ชม.')} detail={c.windDirection === null ? 'ทิศทางไม่พร้อม' : `พัดมาจาก ${value(c.windDirection, '°')}`} /><Reading icon={Sun} label="ดัชนี UV" reading={value(c.uv, '', 1)} detail={c.uv === null ? 'ข้อมูลไม่พร้อม' : c.uv >= 8 ? 'สูงมาก' : c.uv >= 6 ? 'สูง' : c.uv >= 3 ? 'ปานกลาง' : 'ต่ำ'} /><Reading icon={Eye} label="ทัศนวิสัย" reading={value(c.visibility === null ? null : c.visibility / 1000, ' กม.', 1)} detail="ระยะมองเห็นโดยประมาณ" /><Reading icon={Gauge} label="ความกดอากาศ" reading={value(c.pressure, ' hPa')} detail="ความกดที่ระดับพื้นผิว" /><Reading icon={CloudRain} label="ปริมาณฝนวันนี้" reading={value(days[0]?.mm, ' มม.', 1)} detail="พยากรณ์สะสมทั้งวัน" /></section>
+    <HourlyForecast hourly={weatherData.hourly} now={now} />
+    <div className="wx-lower-grid"><section className="wx-panel wx-weekly" aria-labelledby="weekly-title"><div className="wx-section-head"><div><h2 id="weekly-title">พยากรณ์ 7 วัน</h2><p>อุณหภูมิต่ำสุด–สูงสุด และโอกาสฝน</p></div><Thermometer size={22} aria-hidden="true" /></div><div className="wx-day-list">{days.map((day, i) => <div className="wx-day" key={day.date}><div><strong>{i === 0 ? 'วันนี้' : i === 1 ? 'พรุ่งนี้' : dateLabel(day.date).split(' ')[0]}</strong><small>{dateLabel(day.date).split(' ').slice(1).join(' ')}</small></div><WeatherIcon code={day.code} /><span className="wx-day-rain"><Droplets size={13} aria-hidden="true" />{value(day.rain, '%')}</span><span className="wx-day-low">{value(day.low, '°')}</span><span className="wx-temp-range" aria-hidden="true">{day.low !== null && day.high !== null && <i style={{ left: `${(day.low - low) / range * 100}%`, width: `${Math.max(3, (day.high - day.low) / range * 100)}%` }} />}</span><strong>{value(day.high, '°')}</strong></div>)}</div><p className="wx-footnote">พยากรณ์อาจเปลี่ยนแปลง โดยเฉพาะวันที่อยู่ไกลออกไป</p></section>
+    <aside className="wx-tools"><section className="wx-panel wx-air"><div className="wx-section-head"><h2>รู้ทันฝุ่น PM2.5</h2><Wind size={23} aria-hidden="true" /></div><div className="wx-air-value">{value(c.pm25, '', 1)}<span>µg/m³</span></div><p>ค่าประมาณรายชั่วโมง ณ พิกัดที่เลือก</p><div className="wx-air-note"><Info size={18} aria-hidden="true" /><p>ค่านี้มาจากแบบจำลอง CAMS ไม่ใช่ค่าตรวจวัดหรือค่าเฉลี่ย 24 ชั่วโมง จึงไม่แสดงเป็นระดับ AQI ทางการ</p></div><small>ข้อมูลฝุ่นเวลา {thaiTime(weatherData.airObservedAt, { day: 'numeric', month: 'short' })}</small><Link className="wx-inline-link" to="/map">ดูข้อมูลภาพรวมประเทศ <ArrowRight size={15} aria-hidden="true" /></Link></section><section className="wx-monitor-promo"><Monitor size={23} aria-hidden="true" /><h2>มองภาพรวมทั้งประเทศ</h2><p>{weatherMeta.source === 'unavailable' ? 'ข้อมูลส่วนกลางยังไม่พร้อม ดูแผนที่และสถานะแต่ละจังหวัดได้' : `${knownProvinces} จังหวัดมีค่าอุณหภูมิ · ${weatherMeta.stale ? 'ข้อมูลเดิม' : 'อัปเดต'} ${thaiTime(lastUpdated)}`}</p><Link className="wx-button" to="/map?monitor=1">เปิดมอนิเตอร์ <ArrowUpRight size={17} aria-hidden="true" /></Link></section></aside></div>
+    <section className="wx-radar"><button className="wx-radar-toggle" type="button" onClick={() => setRadarOpen(!radarOpen)} aria-expanded={radarOpen} aria-controls="radar-content"><span><CloudRain size={24} aria-hidden="true" /><span><strong>ดูเรดาร์ฝนใกล้คุณ</strong><small>ภาพกลุ่มฝนและการวิเคราะห์ระยะสั้น</small></span></span><ChevronDown className={radarOpen ? 'is-open' : ''} size={22} aria-hidden="true" /></button>{radarOpen && <div id="radar-content" className="wx-radar-content"><p className="wx-footnote">ตรวจเวลาบนภาพเรดาร์ประกอบทุกครั้ง การวิเคราะห์อัตโนมัติไม่ใช่ประกาศเตือนภัยทางการ</p><iframe loading="lazy" title={`เรดาร์ฝน ${location.label}`} src={`https://embed.windy.com/embed2.html?lat=${location.lat}&lon=${location.lon}&zoom=8&level=surface&overlay=radar&product=radar&marker=true`} allowFullScreen /><RainNowcast key={`${location.lat}:${location.lon}`} coords={weatherData.coords} current={c} locationLabel={location.label} minutely={weatherData.minutely} onUseLocation={useLocation} /></div>}</section>
+    </>}
+    <footer className="wx-sources"><ShieldCheck size={20} aria-hidden="true" /><div><strong>รู้ที่มา วางแผนได้มั่นใจขึ้น</strong><p>พยากรณ์อากาศ: <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> · ฝุ่น: <a href="https://atmosphere.copernicus.eu/" target="_blank" rel="noreferrer">CAMS</a> ผ่าน Open-Meteo · พิกัดอำเภอ: OpenStreetMap</p><p>อัปเดตอัตโนมัติทุก 10 นาทีเมื่อเปิดหน้านี้ · ค่าที่ไม่มีข้อมูลแสดงเป็น — · <Link to="/news">ดูประกาศจากหน่วยงาน</Link></p></div></footer>
+  </div>;
 }

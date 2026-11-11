@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "node scripts/verify-weather.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -17,6 +17,7 @@ async function fetchJson(url, timeoutMs = 18000) {
 }
 
 function round(value) {
+  if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.round(parsed * 10) / 10 : null;
 }
@@ -24,6 +25,7 @@ function round(value) {
 function aggregatePm25(hourly = {}) {
   const groups = new Map();
   (hourly.time || []).forEach((time, index) => {
+    if (hourly.pm2_5?.[index] === null || hourly.pm2_5?.[index] === undefined) return;
     const value = Number(hourly.pm2_5?.[index]);
     if (!Number.isFinite(value)) return;
     const key = String(time).slice(0, 10);

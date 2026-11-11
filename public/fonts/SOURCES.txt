@@ -1,0 +1,7 @@
+Noto Sans Thai
+Source stylesheet: https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap
+Font files: Google Fonts gstatic WOFF2 assets referenced by that stylesheet.
+Retrieved: 2026-11-11
+License: SIL Open Font License 1.1 (see OFL.txt).
+Official source: https://github.com/google/fonts/tree/main/ofl/notosansthai
+Only asset URLs in the stylesheet were rewritten to local /fonts/ paths.

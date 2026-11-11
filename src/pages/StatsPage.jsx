@@ -2,6 +2,7 @@ import { useContext, useEffect, useMemo, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { BarChart3, CloudRain, Gauge, LoaderCircle, ThermometerSun, TrendingDown, TrendingUp } from 'lucide-react';
 import { WeatherContext } from '../context/WeatherContext';
+import { finiteOrNull } from '../utils/weatherData';
 
 const LOCATION_KEY = 'air4thai.selectedProvince';
 const metrics = {
@@ -16,7 +17,7 @@ const cleanName = (value = '') => String(value).replace(/^จังหวัด/
 const round = (value) => Math.round(value * 10) / 10;
 
 function summarize(rows, key, aggregate) {
-  const values = rows.map((row) => Number(row[key])).filter(Number.isFinite);
+  const values = rows.map((row) => finiteOrNull(row[key])).filter(value => value !== null);
   if (!values.length) return null;
   return aggregate === 'sum' ? round(values.reduce((sum, value) => sum + value, 0)) : round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
@@ -40,6 +41,7 @@ export default function StatsPage() {
     if (!selectedStation) return undefined;
     const controller = new AbortController();
     setLoading(true);
+    setPayload(null);
     setError('');
     fetch(`/api/statistics?lat=${selectedStation.lat}&lon=${selectedStation.long}`, { signal: controller.signal })
       .then((response) => {
@@ -56,13 +58,13 @@ export default function StatsPage() {
   const config = metrics[metric];
   const analysis = useMemo(() => {
     const all = payload?.daily || [];
-    const available = all.filter((row) => Number.isFinite(Number(row[metric])));
-    const currentRows = available.slice(-period);
-    const previousRows = available.slice(-(period * 2), -period);
+    const currentRows = all.slice(-period);
+    const previousRows = all.slice(-(period * 2), -period);
     const current = summarize(currentRows, metric, config.aggregate);
-    const previous = previousRows.length === currentRows.length ? summarize(previousRows, metric, config.aggregate) : null;
+    const complete = rows => rows.length === period && rows.every(row => finiteOrNull(row[metric]) !== null);
+    const previous = complete(previousRows) && complete(currentRows) ? summarize(previousRows, metric, config.aggregate) : null;
     const average = summarize(currentRows, metric, 'average');
-    const values = currentRows.map((row) => Number(row[metric])).filter(Number.isFinite);
+    const values = currentRows.map((row) => finiteOrNull(row[metric])).filter(value => value !== null);
     const chart = currentRows.map((row) => ({ ...row, label: formatShortDate(row.date) }));
     return {
       current,
@@ -71,7 +73,7 @@ export default function StatsPage() {
       difference: current !== null && previous !== null ? round(current - previous) : null,
       max: values.length ? round(Math.max(...values)) : null,
       min: values.length ? round(Math.min(...values)) : null,
-      days: currentRows.length,
+      days: values.length,
       chart,
     };
   }, [config.aggregate, metric, payload, period]);
@@ -118,7 +120,7 @@ export default function StatsPage() {
                         <YAxis axisLine={false} tick={{ fill: 'var(--muted)', fontSize: 11 }} tickLine={false} unit={config.unit === '°C' ? '°' : ''} />
                         <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12 }} formatter={(value) => [`${value} ${config.unit}`, config.label]} labelFormatter={(label) => `วันที่ ${label}`} />
                         {analysis.average !== null && <ReferenceLine stroke={config.color} strokeDasharray="5 5" y={analysis.average} />}
-                        <Area dataKey={metric} fill={`url(#fill-${metric})`} isAnimationActive stroke={config.color} strokeWidth={2.5} type="monotone" />
+                        <Area dataKey={metric} fill={`url(#fill-${metric})`} isAnimationActive={false} connectNulls={false} stroke={config.color} strokeWidth={2.5} type="monotone" />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>

@@ -100,7 +100,7 @@ function collectItems(feed) {
 
 function formatTime(value) {
   if (!value || Number.isNaN(new Date(value).getTime())) return 'ไม่ระบุเวลา';
-  return new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
+  return new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 }
 
 function SeverityBadge({ severity }) {

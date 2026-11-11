@@ -1,5 +1,6 @@
 {
   "functions": {
+    "api/weather-data.js": { "maxDuration": 30 },
     "api/tmd-wind.js": { "maxDuration": 30 },
     "api/news.js": { "maxDuration": 30 },
     "api/cron-wind.js": { "maxDuration": 30 },

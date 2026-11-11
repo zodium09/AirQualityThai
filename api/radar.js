@@ -317,18 +317,18 @@ const makeClearResult = ({ timeStr, targetDistrict, scanRadiusKm, factors = [], 
   alertLevel: 0,
   cardTitle: unavailable ? 'ยังสแกนเรดาร์ไม่ได้' : 'ยังไม่พบฝนใกล้ตัว',
   cardDesc: unavailable
-    ? 'RainViewer โหลดไม่สำเร็จชั่วคราว ระบบจะใช้พยากรณ์ 15 นาทีและข้อมูลฝนปัจจุบันประกอบแทน'
+    ? 'โหลดภาพเรดาร์ไม่ได้ จึงยังประเมินฝนระยะสั้นไม่ได้ โปรดตรวจพยากรณ์รายชั่วโมงประกอบ'
     : `สแกนเรดาร์รัศมี ${scanRadiusKm} กม. รอบ ${targetDistrict || 'พิกัดนี้'} แล้วไม่พบกลุ่มฝนที่มีนัยสำคัญ`,
   cardColor: unavailable ? 'yellow' : 'blue',
   cardIcon: unavailable ? '⚠️' : '🌤️',
-  cardTag: unavailable ? 'ใช้ข้อมูลสำรอง' : 'ปลอดภัย',
-  confidence: unavailable ? 35 : 78,
+  cardTag: unavailable ? 'ข้อมูลไม่พร้อม' : 'ยังไม่พบสัญญาณฝน',
+  confidence: unavailable ? null : 78,
   unavailable,
   sourceStatus: unavailable ? 'fallback' : 'radar',
   nowcast: {
-    rainRateMmh: 0,
-    rainNext60MinMm: 0,
-    rainRangeMm: [0, 0],
+    rainRateMmh: unavailable ? null : 0,
+    rainNext60MinMm: unavailable ? null : 0,
+    rainRangeMm: unavailable ? [null, null] : [0, 0],
     trend: unavailable ? 'uncertain' : 'clear',
     trendLabel: unavailable ? 'ประเมินแนวโน้มไม่ได้' : 'ยังไม่พบสัญญาณฝน',
     direction: null,
@@ -552,13 +552,8 @@ export default async function handler(req, res) {
     res.setHeader?.('X-Nowcast-Cache', 'MISS');
     return res.status(200).json(resultData);
   } catch (error) {
-    const fallbackTime = new Date().toLocaleTimeString('th-TH', {
-      timeZone: 'Asia/Bangkok',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
     return res.status(200).json(makeClearResult({
-      timeStr: fallbackTime,
+      timeStr: null,
       targetDistrict: 'พิกัดนี้',
       scanRadiusKm: SCAN_RADIUS_KM,
       unavailable: true,

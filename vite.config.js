@@ -8,6 +8,7 @@ function makeApiDevPlugin(route, file) {
     configureServer(server) {
       server.middlewares.use(`/api/${route}`, async (req, res) => {
         try {
+          req.query = Object.fromEntries(new URL(req.url, 'http://localhost').searchParams);
           if (!req.body && req.method && !['GET', 'HEAD'].includes(req.method)) {
             const chunks = [];
             for await (const chunk of req) chunks.push(chunk);
@@ -107,6 +108,7 @@ export default defineConfig(({ mode }) => {
     apiNewsDevPlugin(),
     makeApiDevPlugin('weather-data', 'weather-data.js'),
     makeApiDevPlugin('weather-history', 'weather-history.js'),
+    makeApiDevPlugin('statistics', 'statistics.js'),
     makeApiDevPlugin('radar', 'radar.js'),
     makeApiDevPlugin('enso', 'enso.js'),
     makeApiDevPlugin('tmd-wind', 'tmd-wind.js'),
@@ -118,7 +120,7 @@ export default defineConfig(({ mode }) => {
       injectRegister: 'auto',
       includeManifestIcons: false,
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,ico,svg,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,ico,svg,webmanifest,woff2}'],
         globIgnores: [
           '**/MapPage-*.js',
           '**/NewsPage-*.js',
@@ -135,10 +137,10 @@ export default defineConfig(({ mode }) => {
         description:
           'ตรวจสอบคุณภาพอากาศ ฝุ่น PM2.5 สภาพอากาศ และเตือนภัยล่วงหน้าของประเทศไทยแบบเรียลไทม์',
         lang: 'th',
-        theme_color: '#0788a7',
-        background_color: '#f4f8fa',
+        theme_color: '#1675df',
+        background_color: '#f4f9ff',
         display: 'standalone',
-        orientation: 'portrait-primary',
+        orientation: 'any',
         scope: '/',
         start_url: '/?source=pwa',
         categories: ['weather', 'environment', 'utilities'],

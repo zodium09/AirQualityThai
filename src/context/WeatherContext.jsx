@@ -1,114 +1,49 @@
-import React, { createContext, useState, useEffect } from 'react';
+import { createContext, useState, useEffect, useCallback, useRef } from 'react';
 import { provinces77 } from '../provinces77';
 
 export const WeatherContext = createContext();
+const initialStations = provinces77.map((p, i) => ({ stationID: `PROV_${i}`, areaTH: p.n, lat: p.lat, long: p.lon, AQILast: { PM25: { value: null } } }));
+const empty = { stations: initialStations, stationTemps: {}, stationYesterday: {}, stationMaxYesterday: {}, stationDaily: {}, gistdaSummary: null, amphoeData: null, tmdAvailable: false, lastUpdated: null, source: 'unavailable', stale: true };
 
-const initialStations = provinces77.map((province, index) => ({
-  stationID: `PROV_${index}`,
-  areaTH: province.n,
-  lat: province.lat,
-  long: province.lon,
-  AQILast: { PM25: { value: 0 } },
-}));
-
-export const WeatherProvider = ({ children }) => {
-  const [stations, setStations] = useState(initialStations);
-  const [stationTemps, setStationTemps] = useState({});
-  const [stationYesterday, setStationYesterday] = useState({}); 
-  const [stationMaxYesterday, setStationMaxYesterday] = useState({}); 
-  const [stationDaily, setStationDaily] = useState({}); 
-  const [gistdaSummary, setGistdaSummary] = useState(null);
-  const [amphoeData, setAmphoeData] = useState(null); // 🆕 ข้อมูลระดับอำเภอจาก TMD
-  const [tmdAvailable, setTmdAvailable] = useState(false); // 🆕 TMD API status
+export function WeatherProvider({ children }) {
+  const [data, setData] = useState(empty);
   const [loading, setLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState(null);
-  const [weatherMeta, setWeatherMeta] = useState({
-    source: 'initial',
-    stale: false,
-    fallbackSource: null,
-  });
-
-  const [darkMode, setDarkMode] = useState(() => {
-    const savedTheme = localStorage.getItem('theme');
-    return savedTheme ? savedTheme === 'dark' : false; // Default to Light Mode
-  });
-
+  const [refreshing, setRefreshing] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem('theme') === 'dark'; } catch { return false; } });
+  const active = useRef(null);
   useEffect(() => {
-    localStorage.setItem('theme', darkMode ? 'dark' : 'light');
-    
-    // Toggle the dark-theme class on the body to activate global CSS variables
-    if (darkMode) {
-      document.body.classList.add('dark-theme');
-    } else {
-      document.body.classList.remove('dark-theme');
-    }
+    try { localStorage.setItem('theme', darkMode ? 'dark' : 'light'); } catch { /* Optional preference. */ }
+    document.body.classList.toggle('dark-theme', darkMode);
   }, [darkMode]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadWeatherData = async () => {
-      setLoading(true);
-      try {
-        const response = await fetch('/api/weather-data');
-        if (!response.ok) throw new Error(`Weather API ${response.status}`);
-        const data = await response.json();
-        if (cancelled) return;
-
-        if (data) {
-          setStations(data.stations?.length ? data.stations : initialStations);
-          setStationTemps(data.stationTemps || {});
-          setStationYesterday(data.stationYesterday || {});
-          setStationMaxYesterday(data.stationMaxYesterday || {});
-          setStationDaily(data.stationDaily || {});
-          setGistdaSummary(data.gistdaSummary || null);
-          setAmphoeData(data.amphoeData || null);
-          setLastUpdated(data.lastUpdated || null);
-          setTmdAvailable(data.tmdAvailable || false);
-          setWeatherMeta({
-            source: data.source || (data.fallbackSource ? 'fallback' : 'unknown'),
-            stale: Boolean(data.stale),
-            fallbackSource: data.fallbackSource || null,
-          });
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.warn('Weather data load failed:', error.message);
-          setStations(initialStations);
-          setStationTemps({});
-          setStationYesterday({});
-          setStationMaxYesterday({});
-          setStationDaily({});
-          setGistdaSummary(null);
-          setAmphoeData(null);
-          setLastUpdated(null);
-          setTmdAvailable(false);
-          setWeatherMeta({
-            source: 'unavailable',
-            stale: true,
-            fallbackSource: 'initial-empty',
-          });
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+  const refreshWeather = useCallback(async () => {
+    active.current?.abort();
+    const controller = new AbortController();
+    active.current = controller;
+    const timer = setTimeout(() => controller.abort(), 25000);
+    setRefreshing(true);
+    try {
+      const response = await fetch('/api/weather-data', { signal: controller.signal, cache: 'no-store' });
+      if (!response.ok) throw new Error(`Weather API ${response.status}`);
+      const result = await response.json();
+      if (active.current !== controller) return;
+      if (result.source === 'unavailable' || result.source === 'deterministic-fallback') {
+        setData(previous => ({ ...previous, stale: true, source: previous.lastUpdated ? previous.source : 'unavailable', amphoeData: result.amphoeData || previous.amphoeData }));
+      } else {
+        setData({ ...empty, ...result, stations: result.stations?.length ? result.stations : initialStations });
       }
-    };
-
-    loadWeatherData();
-
-    return () => {
-      cancelled = true;
-    };
+    } catch {
+      if (active.current === controller) setData(previous => ({ ...previous, stale: true }));
+    } finally {
+      clearTimeout(timer);
+      if (active.current === controller) { setLoading(false); setRefreshing(false); }
+    }
   }, []);
-
-  return (
-    <WeatherContext.Provider value={{ 
-      stations, stationTemps, stationYesterday, stationMaxYesterday, stationDaily, 
-      gistdaSummary, amphoeData, tmdAvailable, weatherMeta,
-      loading, lastUpdated, 
-      darkMode, setDarkMode 
-    }}>
-      {children}
-    </WeatherContext.Provider>
-  );
-};
+  useEffect(() => {
+    refreshWeather();
+    const refresh = () => { if (document.visibilityState === 'visible') refreshWeather(); };
+    const timer = setInterval(refresh, 600000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', refresh); active.current?.abort(); active.current = null; };
+  }, [refreshWeather]);
+  return <WeatherContext.Provider value={{ ...data, weatherMeta: { source: data.source, stale: data.stale, fallbackSource: data.fallbackSource }, loading, refreshing, refreshWeather, darkMode, setDarkMode }}>{children}</WeatherContext.Provider>;
+}

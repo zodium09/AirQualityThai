@@ -1,16 +1,56 @@
-# React + Vite
+# อากาศไทย
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+แอปพยากรณ์อากาศภาษาไทยสำหรับมือถือ พร้อมแผนที่มอนิเตอร์ 77 จังหวัดบนคอมพิวเตอร์ สร้างด้วย React, Vite และ Leaflet
 
-Currently, two official plugins are available:
+## เริ่มใช้งาน
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```sh
+npm ci
+npm run dev
+```
 
-## React Compiler
+เปิด URL ที่ Vite แสดงในเทอร์มินัล Local API middleware รองรับ weather-data, statistics, news, radar และเส้นทางข้อมูลเดิม
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```sh
+npm test
+npm run lint
+npm run build
+npm run test:browser
+```
 
-## Expanding the ESLint configuration
+Browser checks ใช้ Puppeteer และเซิร์ฟเวอร์ชั่วคราวพอร์ต 5191 ต้องรันในสภาพแวดล้อมที่อนุญาตเปิด Chrome ผลทดสอบและภาพหน้าจออยู่ใน `artifacts/review/` ซึ่งไม่ถูก commit ชุดทดสอบ UI ใช้ข้อมูลจำลองที่แยกจากแอปจริง และตรวจ API จริงเพิ่มเติมโดยไม่ใช้ข้อมูลจำลองแทนผลตรวจ
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## หน้าจอ
+
+- `/` สภาพอากาศ ณ พิกัดที่เลือก โอกาสฝน PM2.5 พยากรณ์ 24 ชั่วโมง / 7 วัน และเรดาร์ที่เปิดดูเพิ่มได้
+- `/map` แผนที่ เปรียบเทียบจังหวัด เลือกตัวชี้วัด ค้นหา ส่งออก CSV และแสดงสัดส่วนจังหวัดที่มีข้อมูล
+- `/map?monitor=1` ขยายแถวและตัวเลขสำหรับมอนิเตอร์บนคอม
+- `/stats` สถิติย้อนหลัง แสดงจำนวนวันที่มีข้อมูลและเว้นค่าที่หายไป
+- `/news` ประกาศและเหตุการณ์จากแหล่งข้อมูลเดิม
+
+## หลักการข้อมูล
+
+ข้อมูลสภาพอากาศและ PM2.5 เป็นแบบจำลอง ไม่ใช่ข้อมูลตรวจวัดสถานีทั้งหมด หน้าหลักแสดงเวลาไทย UTC+7 ไม่ขึ้นกับ timezone ของอุปกรณ์
+
+- [Open-Meteo Weather API](https://open-meteo.com/en/docs): current, hourly และ daily; ใช้ weather_code แสดงสภาพท้องฟ้า ไม่แปลงโอกาสฝนเป็นคำยืนยันว่าฝนตก
+- [Open-Meteo Air Quality API](https://open-meteo.com/en/docs/air-quality-api) / [CAMS](https://atmosphere.copernicus.eu/): PM2.5 หน่วย µg/m³ แยกจาก AQI ทางการ จับคู่ชั่วโมงด้วย timestamp และไม่เติมค่าปัจจุบันลงวันที่ไม่มีพยากรณ์
+- ข้อมูลส่วนกลางอ่าน Firebase หากพร้อมและยังไม่เก่า หากขาดหรือเก่า จะขอแบบจำลอง Open-Meteo ของ 77 จุดอ้างอิงจังหวัดและ cache 10 นาที จัดช่องข้อมูลแยกต่อจังหวัดและต่อ provider แม้บาง batch ล้มเหลว
+- ถ้าทุกแหล่งใช้ไม่ได้ แสดงข้อมูลเก่าพร้อมสถานะหรือ `—` ไม่สร้างตัวเลขสำรอง
+- หน้าหลักและแผนที่รีเฟรชทุก 10 นาทีเมื่อหน้าเปิดอยู่ ไม่รับประกันว่า provider มีข้อมูลรอบใหม่ทุกครั้ง
+- การเลือกจังหวัดหมายถึงพิกัดอ้างอิงจังหวัด ไม่ใช่ค่าเฉลี่ยเชิงพื้นที่ของทั้งจังหวัด ค่าเฉลี่ยบนแผนที่คือค่าเฉลี่ยจุดอ้างอิงที่มีข้อมูล ไม่ใช่ค่าเฉลี่ยถ่วงน้ำหนักประชากร
+- เลือกอำเภอใช้พิกัด TMD ถ้ามี หรือค้นหาพิกัดด้วย OpenStreetMap/Nominatim เมื่อผู้ใช้เลือก ไม่มีการขอตำแหน่งอัตโนมัติก่อนผู้ใช้กดปุ่ม
+- ข้อมูลเดิมของพื้นที่เดิมเก็บใน localStorage สูงสุด 24 ชั่วโมงเพื่อแสดงเมื่อเชื่อมต่อไม่ได้ พร้อมเวลาและป้ายข้อมูลเดิม
+- สถิติฝนรวมเฉพาะวันที่มีข้อมูล กราฟไม่ลากเชื่อมช่องว่าง เปรียบเทียบช่วงก่อนหน้าเฉพาะเมื่อทั้งสองช่วงครบวัน
+- Radar / nowcast เป็นการประมาณจากภาพ ไม่ใช่ประกาศเตือนภัยทางการ
+
+## บริการและการตั้งค่า
+
+Local forecast และ national Open-Meteo fallback ไม่ต้องมี API key ในการพัฒนา ภายใต้เงื่อนไขและโควตาของผู้ให้บริการ การใช้งานเชิงพาณิชย์ต้องตรวจเงื่อนไขปัจจุบันของ Open-Meteo
+
+ระบบส่วนกลางเดิมรองรับ `FIREBASE_DATABASE_URL` หรือ `VITE_FIREBASE_DATABASE_URL` ส่วนงาน cron เดิมใช้ค่า Firebase และ `TMD_API_TOKEN` ตามที่ระบุใน `api/cron.js` เก็บ secrets ใน environment ของเครื่องหรือ hosting ห้าม commit ลง Git
+
+Cron ใน `vercel.json` ยังคงตารางเดิม การรีเฟรชหน้าจอไม่เปลี่ยนตารางเก็บข้อมูลของ cron การติดตั้งบน Vercel ต้องรองรับ Node API functions และ SPA rewrite ตามไฟล์นี้ ไม่มีการ deploy อัตโนมัติจากการแก้โค้ด
+
+## การออกแบบและฟอนต์
+
+ดู `PRODUCT.md`, `DESIGN.md` และ `src/weather.css` ฟอนต์ Noto Sans Thai อยู่ใน `public/fonts/` พร้อม SIL Open Font License เพื่อไม่ต้องเชื่อมต่อ font CDN ระหว่างใช้งาน

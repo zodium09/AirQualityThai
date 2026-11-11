@@ -84,8 +84,9 @@ registerRoute(
 
 registerRoute(
   ({ url }) => url.hostname.includes('open-meteo.com'),
-  new StaleWhileRevalidate({
-    cacheName: 'weather-api-cache',
+  new NetworkFirst({
+    cacheName: 'weather-api-cache-v2',
+    networkTimeoutSeconds: 8,
     plugins: [
       new ExpirationPlugin({
         maxEntries: 20,

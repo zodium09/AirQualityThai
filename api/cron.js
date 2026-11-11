@@ -1,6 +1,7 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getDatabase, ref, set } from 'firebase/database';
 import { provinces77 } from '../src/provinces77.js';
+import { dailyAirMax, providerSlots, roundedOrNull } from '../src/server/providerData.js';
 
 // TMD API Regions — 6 calls ได้ข้อมูลทั้งประเทศ
 const TMD_REGIONS = ['N', 'NE', 'C', 'E', 'W', 'S'];
@@ -182,14 +183,13 @@ export default async function handler(req, res) {
       const wUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m,wind_direction_10m&hourly=temperature_2m,apparent_temperature,precipitation_probability,wind_speed_10m,uv_index&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,precipitation_probability_max,precipitation_sum,uv_index_max,wind_speed_10m_max&timezone=Asia%2FBangkok&past_days=7&forecast_days=8&_t=${timestamp}`;
       const aUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lats}&longitude=${lons}&current=pm2_5&hourly=pm2_5&timezone=Asia%2FBangkok&past_days=7&forecast_days=7&_t=${timestamp}`;
 
-      const [wRes, aRes] = await Promise.all([fetch(wUrl), fetch(aUrl)]);
-
-      if (wRes.ok && aRes.ok) {
-        const wJson = await wRes.json();
-        const aJson = await aRes.json();
-        allWData = [...allWData, ...(Array.isArray(wJson) ? wJson : [wJson])];
-        allAData = [...allAData, ...(Array.isArray(aJson) ? aJson : [aJson])];
-      }
+      const results = await Promise.allSettled([wUrl, aUrl].map(async url => {
+        const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
+        if (!response.ok) throw new Error(`Weather provider HTTP ${response.status}`);
+        return response.json();
+      }));
+      allWData.push(...providerSlots(results[0], chunk.length));
+      allAData.push(...providerSlots(results[1], chunk.length));
       if (i + chunkSize < provinces77.length) await new Promise(r => setTimeout(r, 200));
     }
 
@@ -216,7 +216,10 @@ export default async function handler(req, res) {
 
       newStations.push({
         stationID: sID, areaTH: p.n, lat: p.lat, long: p.lon,
-        AQILast: { PM25: { value: Math.round(a.current?.pm2_5 || 0) } },
+        AQILast: { PM25: { value: roundedOrNull(a.current?.pm2_5) } },
+        pm25Source: 'cams-model',
+        pm25Time: a.current?.time || null,
+        weatherTime: w.current?.time || null,
         // Flag source
         dataSource: hasTmd ? 'tmd' : 'openmeteo',
         tmdCond: hasTmd ? tmdData.cond : null
@@ -224,21 +227,20 @@ export default async function handler(req, res) {
 
       // With past_days=7: daily[0]=7 days ago, daily[6]=yesterday, daily[7]=today, daily[8]=tomorrow
       // Hourly: [7*24 + currentHour] = current hour today, [6*24 + currentHour] = same hour yesterday
-      const todayDailyIdx = 7;
       const yesterdayDailyIdx = 6;
       const todayHourlyIdx = 7 * 24 + currentHour;
       const yesterdayHourlyIdx = 6 * 24 + currentHour;
 
       // Current values: TMD primary, OpenMeteo fallback
       newTemps[sID] = {
-        temp: hasTmd ? Math.round(tmdData.tc) : Math.round(w.current?.temperature_2m || 0),
-        feelsLike: Math.round(w.current?.apparent_temperature || 0),
-        humidity: hasTmd ? (tmdData.rh || Math.round(w.current?.relative_humidity_2m || 0)) : Math.round(w.current?.relative_humidity_2m || 0),
-        rainProb: Math.round(w.hourly?.precipitation_probability?.[todayHourlyIdx] ?? w.daily?.precipitation_probability_max?.[todayDailyIdx] ?? 0),
-        rainMm: hasTmd ? (tmdData.rain || 0) : 0,
-        windSpeed: Math.round(w.current?.wind_speed_10m || 0),
-        windDir: Math.round(w.current?.wind_direction_10m || 0),
-        uv: Math.round(w.hourly?.uv_index?.[todayHourlyIdx] ?? w.daily?.uv_index_max?.[todayDailyIdx] ?? 0),
+        temp: roundedOrNull(hasTmd ? tmdData.tc : w.current?.temperature_2m),
+        feelsLike: roundedOrNull(w.current?.apparent_temperature),
+        humidity: roundedOrNull(tmdData?.rh ?? w.current?.relative_humidity_2m),
+        rainProb: roundedOrNull(w.hourly?.precipitation_probability?.[todayHourlyIdx]),
+        rainMm: roundedOrNull(hasTmd ? tmdData.rain : w.current?.precipitation, 1),
+        windSpeed: roundedOrNull(w.current?.wind_speed_10m),
+        windDir: roundedOrNull(w.current?.wind_direction_10m),
+        uv: roundedOrNull(w.hourly?.uv_index?.[todayHourlyIdx]),
         pressure: hasTmd ? (tmdData.slp || null) : null,
         cond: hasTmd ? tmdData.cond : null,
         source: hasTmd ? 'tmd' : 'openmeteo'
@@ -252,59 +254,32 @@ export default async function handler(req, res) {
       const prevWind = w.hourly?.wind_speed_10m?.[yesterdayHourlyIdx];
 
       newYesterday[sID] = {
-        temp: Math.round(prevTemp !== undefined ? prevTemp : (w.daily?.temperature_2m_max?.[yesterdayDailyIdx] || 0)),
-        minTemp: Math.round(w.daily?.temperature_2m_min?.[yesterdayDailyIdx] || 0),
-        pm25: Math.round(prevPm25 !== undefined ? prevPm25 : (a.current?.pm2_5 || 0)),
-        uv: Math.round(prevUv !== undefined ? prevUv : (w.daily?.uv_index_max?.[yesterdayDailyIdx] || 0)),
-        rain: Math.round(prevRain !== undefined ? prevRain : (w.daily?.precipitation_probability_max?.[yesterdayDailyIdx] || 0)),
-        wind: Math.round(prevWind !== undefined ? prevWind : (w.daily?.wind_speed_10m_max?.[yesterdayDailyIdx] || 0))
+        temp: roundedOrNull(prevTemp),
+        minTemp: roundedOrNull(w.daily?.temperature_2m_min?.[yesterdayDailyIdx]),
+        pm25: roundedOrNull(prevPm25), uv: roundedOrNull(prevUv),
+        rain: roundedOrNull(prevRain), wind: roundedOrNull(prevWind)
       };
-
-      let maxPm25 = 0;
-      if (a.hourly?.pm2_5) {
-          const yStart = yesterdayDailyIdx * 24;
-          const yesterdayHourly = a.hourly.pm2_5.slice(yStart, yStart + 24).filter(v => v !== null);
-          if (yesterdayHourly.length > 0) maxPm25 = Math.max(...yesterdayHourly);
-      }
-
+      const yesterdayDate = w.daily?.time?.[yesterdayDailyIdx];
       newMaxYesterday[sID] = {
-        temp: Math.round(w.daily?.temperature_2m_max?.[yesterdayDailyIdx] || 0),
-        pm25: Math.round(maxPm25 || a.current?.pm2_5 || 0),
-        uv: Math.round(w.daily?.uv_index_max?.[yesterdayDailyIdx] || 0),
-        rain: Math.round((w.daily?.precipitation_sum?.[yesterdayDailyIdx] || 0) * 10) / 10,
-        wind: Math.round(w.daily?.wind_speed_10m_max?.[yesterdayDailyIdx] || 0)
+        temp: roundedOrNull(w.daily?.temperature_2m_max?.[yesterdayDailyIdx]),
+        pm25: dailyAirMax([yesterdayDate], a.hourly)[0],
+        uv: roundedOrNull(w.daily?.uv_index_max?.[yesterdayDailyIdx]),
+        rain: roundedOrNull(w.daily?.precipitation_sum?.[yesterdayDailyIdx], 1),
+        wind: roundedOrNull(w.daily?.wind_speed_10m_max?.[yesterdayDailyIdx])
       };
 
       // Daily arrays for Map Slider
       const dailyDates = w.daily?.time || [];
-      const dailyPm25Values = [];
-      if (a.hourly?.pm2_5 && a.hourly.pm2_5.length > 0) {
-          for (let d = 0; d < dailyDates.length; d++) {
-             const startIdx = d * 24;
-             const endIdx = (d + 1) * 24;
-             if (startIdx >= a.hourly.pm2_5.length && dailyPm25Values.length > 0) {
-                 // For missing days beyond the 7-day limit of Air Quality API, duplicate the last available forecast day
-                 dailyPm25Values.push(dailyPm25Values[dailyPm25Values.length - 1]);
-             } else {
-                 const slice = a.hourly.pm2_5.slice(startIdx, endIdx);
-                 const valid = slice.filter(v => v !== null);
-                 dailyPm25Values.push(valid.length > 0 ? Math.round(Math.max(...valid)) : Math.round(a.current?.pm2_5 || 0));
-             }
-          }
-      } else {
-          for (let d = 0; d < dailyDates.length; d++) {
-             dailyPm25Values.push(Math.round(a.current?.pm2_5 || 0));
-          }
-      }
+      const dailyPm25Values = dailyAirMax(dailyDates, a.hourly);
 
       newDaily[sID] = {
           dates: dailyDates,
-          temp: w.daily?.temperature_2m_max?.map(v => Math.round(v)) || [],
-          heat: w.daily?.apparent_temperature_max?.map(v => Math.round(v)) || [],
+          temp: w.daily?.temperature_2m_max?.map(v => roundedOrNull(v)) || [],
+          heat: w.daily?.apparent_temperature_max?.map(v => roundedOrNull(v)) || [],
           pm25: dailyPm25Values,
-          rain: w.daily?.precipitation_probability_max?.map(v => Math.round(v)) || [],
-          wind: w.daily?.wind_speed_10m_max?.map(v => Math.round(v)) || [],
-          uv: w.daily?.uv_index_max?.map(v => Math.round(v)) || []
+          rain: w.daily?.precipitation_probability_max?.map(v => roundedOrNull(v)) || [],
+          wind: w.daily?.wind_speed_10m_max?.map(v => roundedOrNull(v)) || [],
+          uv: w.daily?.uv_index_max?.map(v => roundedOrNull(v)) || []
       };
     });
 
@@ -312,6 +287,7 @@ export default async function handler(req, res) {
     // STEP 4: Save Province-level to Firebase (weather_data — compatible path)
     // ========================================
     const payload = {
+        schemaVersion: 2,
         lastUpdated: new Date(timestamp).toISOString(),
         tmdAvailable: tmdSuccess,
         stations: newStations,
