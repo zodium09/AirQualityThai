@@ -27,12 +27,12 @@ export function WeatherProvider({ children }) {
       const result = await response.json();
       if (active.current !== controller) return;
       if (result.source === 'unavailable' || result.source === 'deterministic-fallback') {
-        setData(previous => ({ ...previous, stale: true, source: previous.lastUpdated ? previous.source : 'unavailable', amphoeData: result.amphoeData || previous.amphoeData }));
+        setData(previous => ({ ...previous, stale: true, fetchFailed: true, source: previous.lastUpdated ? previous.source : 'unavailable', amphoeData: result.amphoeData || previous.amphoeData }));
       } else {
-        setData({ ...empty, ...result, stations: result.stations?.length ? result.stations : initialStations });
+        setData({ ...empty, ...result, fetchFailed: false, stations: result.stations?.length ? result.stations : initialStations });
       }
     } catch {
-      if (active.current === controller) setData(previous => ({ ...previous, stale: true }));
+      if (active.current === controller) setData(previous => ({ ...previous, stale: true, fetchFailed: true }));
     } finally {
       clearTimeout(timer);
       if (active.current === controller) { setLoading(false); setRefreshing(false); }
@@ -45,5 +45,5 @@ export function WeatherProvider({ children }) {
     document.addEventListener('visibilitychange', refresh);
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', refresh); active.current?.abort(); active.current = null; };
   }, [refreshWeather]);
-  return <WeatherContext.Provider value={{ ...data, weatherMeta: { source: data.source, stale: data.stale, fallbackSource: data.fallbackSource }, loading, refreshing, refreshWeather, darkMode, setDarkMode }}>{children}</WeatherContext.Provider>;
+  return <WeatherContext.Provider value={{ ...data, weatherMeta: { source: data.source, stale: data.stale, fetchFailed: data.fetchFailed, fallbackSource: data.fallbackSource }, loading, refreshing, refreshWeather, darkMode, setDarkMode }}>{children}</WeatherContext.Provider>;
 }

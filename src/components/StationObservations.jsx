@@ -1,0 +1,39 @@
+import { useEffect, useState } from 'react';
+import { RadioTower, RefreshCw } from 'lucide-react';
+import { displayValue, thaiTime, isStaleTime } from '../utils/weatherData';
+import RiskValue from './RiskValue';
+
+export default function StationObservations({ lat, lon, now }) {
+  const [state, setState] = useState({ loading: true, data: null });
+  const [refresh, setRefresh] = useState(0);
+  useEffect(() => {
+    let request;
+    let active = true;
+    const load = async () => {
+      request?.abort(); request = new AbortController();
+      const controller = request;
+      setState({ loading: true, data: null });
+      try {
+        const response = await fetch(`/api/observations?lat=${lat}&lon=${lon}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(24000)]) });
+        if (!response.ok) throw new Error('observations');
+        const data = await response.json();
+        if (active && request === controller) setState({ loading: false, data });
+      } catch { if (active && request === controller) setState({ loading: false, data: null }); }
+    };
+    load();
+    const visibleLoad = () => { if (document.visibilityState === 'visible') load(); };
+    const timer = setInterval(visibleLoad, 600000);
+    document.addEventListener('visibilitychange', visibleLoad);
+    return () => { active = false; request?.abort(); clearInterval(timer); document.removeEventListener('visibilitychange', visibleLoad); };
+  }, [lat, lon, refresh]);
+  const weather = state.data?.weather;
+  const air = state.data?.air;
+  const usableWeather = weather?.status === 'available';
+  const usableAir = air?.status === 'available';
+  const airStale = air?.stale || isStaleTime(air?.observedAt, now, 10800000);
+  const weatherStale = weather?.stale || isStaleTime(weather?.observedAt, now, 26 * 3600000);
+  return <section className="wx-panel wx-observations" aria-labelledby="station-title">
+    <div className="wx-section-head"><div><h2 id="station-title"><RadioTower size={21} aria-hidden="true" /> ค่าตรวจวัดจากสถานีใกล้เคียง</h2><p>ค่าของสถานีแต่ละแห่ง สภาพจริงที่ตำแหน่งคุณอาจต่างกัน</p></div><button className="wx-button wx-button--quiet" type="button" disabled={state.loading} onClick={() => setRefresh(x => x + 1)} aria-label="อัปเดตค่าตรวจวัด"><RefreshCw size={16} className={state.loading ? 'is-spinning' : ''} /></button></div>
+    {state.loading ? <p role="status">กำลังตรวจข้อมูลสถานี…</p> : <div className="station-columns"><div><h3>อากาศ · {usableWeather ? weather.station.name : 'ข้อมูลสถานียังไม่พร้อม'}</h3>{usableWeather ? <><p>ห่าง {displayValue(weather.station.distanceKm, ' กม.', 1)} · ตรวจวัด {thaiTime(weather.observedAt, { day: 'numeric', month: 'short' })}{weatherStale ? ' · ข้อมูลเดิม' : ''}</p><div className="station-values"><div><span>อุณหภูมิ ณ เวลาตรวจ</span><RiskValue metric="temperature" value={weather.temperature} unit="°C" stale={weatherStale} label /></div><div><span>ต่ำสุดย้อนหลัง</span><RiskValue metric="temperature" value={weather.tempMin} unit="°C" stale={weatherStale} /></div><div><span>สูงสุดย้อนหลัง</span><RiskValue metric="temperature" value={weather.tempMax} unit="°C" stale={weatherStale} /></div><div><span>ฝนสะสมที่สถานี</span><RiskValue metric="rain" value={weather.rainMm} unit=" มม." hours={weather.averagingWindow?.hours} stale={weatherStale} label /></div></div><p className="wx-footnote">{weather.averagingWindow?.label || 'ตรวจช่วงเวลาจากต้นทาง'}{weather.averagingWindow?.start && ` · ${thaiTime(weather.averagingWindow.start, { day: 'numeric', month: 'short' })} ถึง ${thaiTime(weather.averagingWindow.end, { day: 'numeric', month: 'short' })}`}</p><a href={weather.sourceUrl} target="_blank" rel="noreferrer">ข้อมูลจาก {weather.source}</a></> : <p>ยังยืนยันค่าตรวจวัดไม่ได้ · พยากรณ์จากแบบจำลองยังดูได้ด้านบน</p>}</div><div><h3>ฝุ่น · {usableAir ? air.station.name : 'ข้อมูลสถานีฝุ่นยังไม่พร้อม'}</h3>{usableAir ? <><p>ห่าง {displayValue(air.station.distanceKm, ' กม.', 1)} · {air.averagingWindow?.label || 'ยังไม่ยืนยันช่วงเฉลี่ย'}</p><RiskValue className="station-pm" metric="pm25" value={air.pm25} unit=" µg/m³" hours={air.averagingWindow?.hours} stale={airStale} label /><p>ข้อมูล {thaiTime(air.observedAt, { day: 'numeric', month: 'short' })}{airStale ? ' · ข้อมูลเดิม' : ''}</p><p className="wx-footnote">ระดับสีเทียบเฉพาะ PM2.5 ตามช่วงเฉลี่ย ไม่ใช่ AQI รวมทุกมลพิษ</p><a href={air.sourceUrl} target="_blank" rel="noreferrer">ข้อมูลจาก {air.source}</a></> : <p>ยังยืนยันค่าฝุ่นจากสถานีไม่ได้ · ไม่มีการแทนค่าด้วยแบบจำลอง</p>}</div></div>}
+  </section>;
+}

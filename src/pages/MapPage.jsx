@@ -1,17 +1,28 @@
 import { useContext, useEffect, useMemo, useState } from 'react';
-import { GeoJSON, MapContainer, TileLayer, useMap } from 'react-leaflet';
+import { CircleMarker, GeoJSON, MapContainer, TileLayer, useMap } from 'react-leaflet';
 import { CloudRain, Download, Gauge, Hand, Monitor, RefreshCw, Search, Thermometer, Wind } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import LoadingScreen from '../components/LoadingScreen';
 import { WeatherContext } from '../context/WeatherContext';
-import { finiteOrNull, thaiTime } from '../utils/weatherData';
+import { displayValue, thaiTime } from '../utils/weatherData';
+import { riskLevel } from '../utils/riskScale';
+import { mapReading } from '../utils/mapReadings';
+import RiskValue, { RiskLegend } from '../components/RiskValue';
 
 const metricOptions = {
-  pm25: { label: 'PM2.5', unit: 'µg/m³', icon: Gauge },
-  temp: { label: 'อุณหภูมิ', unit: '°C', icon: Thermometer },
-  rain: { label: 'โอกาสฝน', unit: '%', icon: CloudRain },
-  wind: { label: 'ความเร็วลม', unit: 'กม./ชม.', icon: Wind },
+  rain: { label: 'ฝนวันนี้', unit: 'มม.', icon: CloudRain },
+  temp: { label: 'อุณหภูมิขณะนี้', unit: '°C', icon: Thermometer },
+  tempMin: { label: 'ต่ำสุดวันนี้', unit: '°C', icon: Thermometer },
+  tempMax: { label: 'สูงสุดวันนี้', unit: '°C', icon: Thermometer },
+  wind: { label: 'ลมกระโชก', unit: 'กม./ชม.', icon: Wind },
+  pm25: { label: 'PM2.5 เฉลี่ย 24 ชม.', unit: 'µg/m³', icon: Gauge },
+  pmHour: { label: 'PM2.5 รายชั่วโมง', unit: 'µg/m³', icon: Gauge },
 };
+function metricRisk(metric, value, stale = false) {
+  return riskLevel(metric.startsWith('temp') ? 'temperature' : metric === 'wind' ? 'gust' : metric === 'pmHour' ? 'pm25' : metric, value, { stale, hours: ['rain', 'pm25'].includes(metric) ? 24 : null });
+}
+function getMetricTone(metric, value, stale = false) { return metricRisk(metric, value, stale).color; }
+function getMetricStatus(metric, value, stale = false) { return metricRisk(metric, value, stale).label; }
 
 function cleanName(value = '') {
   return String(value).replace(/^จังหวัด/, '').trim();
@@ -28,51 +39,6 @@ const featureNameOverrides = {
 function getFeatureName(feature) {
   const properties = feature?.properties || {};
   return featureNameOverrides[properties.NAME_1] || cleanName(properties.NL_NAME_1 || properties.NAME_1);
-}
-
-function getMetricValue(station, stationTemps, metric) {
-  const weather = stationTemps?.[station.stationID] || {};
-  const value = metric === 'pm25' ? station.AQILast?.PM25?.value
-    : metric === 'temp' ? weather.temp
-      : metric === 'rain' ? weather.rainProb : weather.windSpeed;
-  const parsed = finiteOrNull(value);
-  if (parsed === null || (metric !== 'temp' && parsed < 0)) return null;
-  return parsed;
-}
-
-function getMetricTone(metric, value) {
-  if (value === null) return '#94a3b8';
-  if (metric === 'pm25') {
-    if (value <= 15) return '#25b9e8';
-    if (value <= 25) return '#35c9c4';
-    if (value <= 37.5) return '#f6c945';
-    if (value <= 75) return '#ff8a4c';
-    return '#f04f70';
-  }
-  if (metric === 'temp') {
-    if (value < 24) return '#38bdf8';
-    if (value < 32) return '#36c6d3';
-    if (value < 36) return '#ffb33e';
-    return '#ff5f57';
-  }
-  if (metric === 'rain') {
-    if (value < 20) return '#b8d8f8';
-    if (value < 50) return '#55b9ff';
-    if (value < 75) return '#287fea';
-    return '#6758d9';
-  }
-  if (value < 12) return '#38bdf8';
-  if (value < 25) return '#36c6d3';
-  if (value < 40) return '#ffb33e';
-  return '#ff5f57';
-}
-
-function getMetricStatus(metric, value) {
-  if (value === null) return 'ไม่มีข้อมูล';
-  if (metric === 'pm25') return 'PM2.5 จากแบบจำลอง · ไม่ใช่ AQI';
-  if (metric === 'temp') return value >= 36 ? 'ร้อนจัด' : value >= 32 ? 'ค่อนข้างร้อน' : 'ทั่วไป';
-  if (metric === 'rain') return value >= 75 ? 'โอกาสสูง' : value >= 50 ? 'ควรเตรียมรับฝน' : 'โอกาสไม่สูง';
-  return value >= 40 ? 'ลมแรง' : value >= 25 ? 'ลมค่อนข้างแรง' : 'ลมไม่แรง';
 }
 
 function MapFocus({ station }) {
@@ -101,12 +67,14 @@ function MapInteraction({ enabled }) {
 export default function MapPage() {
   const { lastUpdated, loading, refreshing, refreshWeather, stationTemps, stations, weatherMeta } = useContext(WeatherContext);
   const [monitor, setMonitor] = useState(() => new URLSearchParams(window.location.search).get('monitor') === '1');
-  const [metric, setMetric] = useState('pm25');
+  const [metric, setMetric] = useState('rain');
   const [query, setQuery] = useState('');
   const [selectedStation, setSelectedStation] = useState(null);
   const [geoData, setGeoData] = useState(null);
   const [compact, setCompact] = useState(false);
   const [mapInteractive, setMapInteractive] = useState(true);
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(timer); }, []);
   const meta = metricOptions[metric];
   const MetricIcon = meta.icon;
 
@@ -127,16 +95,15 @@ export default function MapPage() {
     return () => media.removeEventListener('change', sync);
   }, []);
 
-  const allRows = useMemo(() => (stations || []).map((station) => ({
-    station,
-    name: cleanName(station.areaTH),
-    value: getMetricValue(station, stationTemps, metric),
-  })), [metric, stationTemps, stations]);
+  const allRows = useMemo(() => (stations || []).map((station) => {
+    const reading = mapReading(station, stationTemps, metric, now);
+    return { station: { ...station, lat: reading.lat, long: reading.lon }, name: cleanName(station.areaTH), ...reading, stale: reading.stale || weatherMeta.fetchFailed };
+  }), [metric, stationTemps, stations, now, weatherMeta.fetchFailed]);
 
   const rowByName = useMemo(() => new Map(allRows.map((row) => [row.name, row])), [allRows]);
   const rows = useMemo(() => allRows.filter((item) => item.name.toLowerCase().includes(query.trim().toLowerCase())), [allRows, query]);
-  const ranked = useMemo(() => [...rows].sort((a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity)), [rows]);
-  const availableRows = allRows.filter(row => row.value !== null);
+  const ranked = useMemo(() => [...rows].sort((a, b) => { if (a.value === null || a.stale) return b.value === null || b.stale ? a.name.localeCompare(b.name, 'th') : 1; if (b.value === null || b.stale) return -1; return metric === 'tempMin' ? a.value - b.value : b.value - a.value; }), [rows, metric]);
+  const availableRows = allRows.filter(row => row.value !== null && !row.stale);
   const nationalAverage = availableRows.length ? availableRows.reduce((sum, row) => sum + row.value, 0) / availableRows.length : null;
   const sourceIsFallback = weatherMeta?.source === 'deterministic-fallback' || weatherMeta?.source === 'unavailable' || weatherMeta?.stale;
 
@@ -152,8 +119,8 @@ export default function MapPage() {
     const selected = selectedStation?.stationID === row?.station.stationID;
     return {
       color: selected ? '#102b64' : '#ffffff',
-      fillColor: getMetricTone(metric, row?.value ?? null),
-      fillOpacity: row?.value === null ? 0.35 : 0.82,
+      fillColor: getMetricTone(metric, row?.value ?? null, row?.stale),
+      fillOpacity: row?.value === null || row?.stale ? 0.25 : 0.62,
       opacity: 1,
       weight: selected ? 3 : 1.25,
     };
@@ -163,7 +130,7 @@ export default function MapPage() {
     const name = getFeatureName(feature);
     const row = rowByName.get(name);
     const value = row?.value ?? null;
-    layer.bindPopup(`<div class="map-popup"><strong>${name}</strong><span style="color:${getMetricTone(metric, value)}">${value === null ? '–' : Math.round(value)} ${meta.unit}</span><small>${getMetricStatus(metric, value)}</small><a href="/?province=${encodeURIComponent(name)}">ดูพยากรณ์จังหวัดนี้</a></div>`);
+    layer.bindPopup(`<div class="map-popup"><strong>${name}</strong><span style="color:${getMetricTone(metric, value, row?.stale)}">${displayValue(value, '', 1)} ${meta.unit}</span><small>${getMetricStatus(metric, value, row?.stale)} · จุดอ้างอิงจังหวัด · ${thaiTime(row?.validAt, { day: 'numeric', month: 'short' })}</small><a href="/?province=${encodeURIComponent(name)}">ดูพยากรณ์จังหวัดนี้</a></div>`);
     layer.on({
       click: () => {
         if (row) setSelectedStation(row.station);
@@ -174,11 +141,11 @@ export default function MapPage() {
     });
   };
 
-  const legendValues = metric === 'pm25' ? [15, 25, 37.5, 75, 76] : metric === 'temp' ? [23, 31, 35, 36] : metric === 'rain' ? [19, 49, 74, 75] : [11, 24, 39, 40];
-  const legendLabels = metric === 'pm25' ? ['≤15', '15–25', '25–37.5', '37.5–75', '>75'] : metric === 'temp' ? ['<24', '24–<32', '32–<36', '≥36'] : metric === 'rain' ? ['<20', '20–<50', '50–<75', '≥75'] : ['<12', '12–<25', '25–<40', '≥40'];
+  const legendValues = metric === 'pm25' ? [15, 25, 37.5, 75, 76] : metric.startsWith('temp') ? [7, 15, 22, 30, 35, 40] : metric === 'rain' ? [0, 10, 35, 90, 91] : metric === 'pmHour' ? [0] : [10, 25, 45, 65];
+  const legendLabels = metric === 'pm25' ? ['≤15', '>15–25', '>25–37.5', '>37.5–75', '>75'] : metric.startsWith('temp') ? ['<8', '8–<16', '16–<23', '23–<35', '35–<40', '≥40'] : metric === 'rain' ? ['<0.1', '0.1–10', '>10–35', '>35–90', '>90'] : metric === 'pmHour' ? ['รายชั่วโมง · ไม่จัดระดับ AQI'] : ['<20', '20–<40', '40–<62', '≥62'];
   const exportCsv = () => {
     const quote = text => `"${String(text ?? '').replace(/"/g, '""').replace(/^[=+@-]/, "'")}"`;
-    const lines = [['จังหวัด', meta.label, 'หน่วย', 'เวลาข้อมูล', 'สถานะ'], ...ranked.map(row => [row.name, row.value, meta.unit, lastUpdated || '', sourceIsFallback ? 'ข้อมูลเดิมหรือไม่พร้อม' : 'ข้อมูลส่วนกลาง'])];
+    const lines = [['จังหวัด (จุดอ้างอิง)', 'ละติจูด', 'ลองจิจูด', meta.label, 'หน่วย', 'เวลาตัวชี้วัด', 'แหล่งข้อมูล', 'รูปแบบเวลา', 'ระยะเวลาที่ค่าแทน (ชั่วโมง)', 'สถานะ'], ...ranked.map(row => [row.name, row.station.lat, row.station.long, row.value, meta.unit, row.validAt || '', row.source, row.periodLabel, row.hours ?? '', row.value === null ? 'ไม่มีข้อมูล' : row.stale ? 'ข้อมูลเดิม' : 'มีข้อมูลตามเวลา'])];
     const url = URL.createObjectURL(new Blob(['\ufeff', lines.map(row => row.map(quote).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = `weather-${metric}.csv`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -196,14 +163,15 @@ export default function MapPage() {
         </div>
         <div className="map-monitor-actions"><button className="wx-button wx-button--quiet" type="button" disabled={refreshing} onClick={refreshWeather}><RefreshCw size={16} className={refreshing ? 'is-spinning' : ''} /> อัปเดต</button><button className="wx-button wx-button--quiet" type="button" onClick={exportCsv}><Download size={16} /> CSV</button><button className="wx-button wx-button--quiet" type="button" aria-pressed={monitor} onClick={() => setMonitor(!monitor)}><Monitor size={16} /> {monitor ? 'มุมมองปกติ' : 'มอนิเตอร์'}</button></div>
       </div>
-      <div className="map-data-status"><span>มีข้อมูล{meta.label} {availableRows.length} / {allRows.length} จังหวัด · จังหวัดที่ไม่มีข้อมูลแสดงสีเทา</span><span>รีเฟรชอัตโนมัติทุก 10 นาที · {meta.unit}</span></div>
+      <div className="map-data-status"><span>มีข้อมูล{meta.label} {availableRows.length} / {allRows.length} จังหวัด · ข้อมูลเก่าหรือไม่พร้อมแสดงสีเทา</span><span>รีเฟรชอัตโนมัติทุก 10 นาที · {meta.unit}</span></div>
 
+      <p className="map-scope-note">สีจังหวัดใช้ค่าที่พิกัดอ้างอิงเดียว หมุดคือจุดพยากรณ์ ไม่ใช่ค่าเฉลี่ยทั้งพื้นที่ · {metric === 'rain' ? 'ฝนพยากรณ์สะสมวันนี้ 00:00–24:00 น.' : metric === 'pm25' ? 'CAMS เฉลี่ยครบ 24 ชั่วโมง · สีเทียบเกณฑ์ความเข้มข้น ไม่ใช่ AQI ทางการ' : metric === 'pmHour' ? 'CAMS รายชั่วโมง · ไม่ใช้เกณฑ์เฉลี่ย 24 ชั่วโมง' : 'ค่าจากแบบจำลองตามพิกัด · เวลาไทย'}</p><RiskLegend />
       <div className="map-workspace">
         <aside className="map-sidebar">
-          <div className="map-summary"><span className="map-summary__icon"><MetricIcon aria-hidden="true" size={20} /></span><div><small>ค่าเฉลี่ยจังหวัดที่มีข้อมูล</small><strong>{nationalAverage === null ? '–' : metric === 'temp' ? nationalAverage.toFixed(1) : Math.round(nationalAverage)} <span>{meta.unit}</span></strong></div></div>
+          <div className="map-summary"><span className="map-summary__icon"><MetricIcon aria-hidden="true" size={20} /></span><div><small>เฉลี่ยจุดอ้างอิงที่มีข้อมูลใหม่</small><strong>{displayValue(nationalAverage, '', 1)} <span>{meta.unit}</span></strong></div></div>
           <label className="search-field"><Search aria-hidden="true" size={18} /><span className="sr-only">ค้นหาจังหวัด</span><input onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาจังหวัด" type="search" value={query} /></label>
           <div className="province-list">
-            {ranked.map(({ station, name, value }, index) => <button className={`province-row${selectedStation?.stationID === station.stationID ? ' is-selected' : ''}`} key={station.stationID} onClick={() => setSelectedStation(station)} type="button"><span className="province-row__rank">{value === null ? '–' : index + 1}</span><span className="province-row__name"><strong>{name}</strong><small>{getMetricStatus(metric, value)}</small></span><span className="province-row__value">{value === null ? '—' : Math.round(value)} <small>{meta.unit}</small></span></button>)}
+            {ranked.map(({ station, name, value, stale, validAt, riskMetric, hours }, index) => <button className={`province-row${selectedStation?.stationID === station.stationID ? ' is-selected' : ''}`} key={station.stationID} onClick={() => setSelectedStation(station)} type="button"><span className="province-row__rank">{value === null || stale ? '–' : index + 1}</span><span className="province-row__name"><strong>{name}</strong><small>{getMetricStatus(metric, value, stale)}</small><small>{thaiTime(validAt, { day: 'numeric', month: 'short' })}</small></span><span className="province-row__value"><RiskValue metric={riskMetric} value={value} hours={hours} stale={stale} /> <small>{meta.unit}</small></span></button>)}
             {!ranked.length && <div className="empty-inline">ไม่พบจังหวัดที่ตรงกับคำค้น</div>}
           </div>
         </aside>
@@ -212,12 +180,13 @@ export default function MapPage() {
           <MapContainer center={[13.2, 101.1]} maxBounds={[[3.5, 92], [23, 110]]} minZoom={5} scrollWheelZoom={false} zoom={5.6}>
             <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <MapFocus station={selectedStation} />
+            {rows.map(row => <CircleMarker key={row.station.stationID} center={[Number(row.station.lat), Number(row.station.long)]} radius={selectedStation?.stationID === row.station.stationID ? 6 : 2.5} pathOptions={{ color: '#17344f', fillColor: '#fff', fillOpacity: 1, weight: 1 }} interactive={false} />)}
             <MapInteraction enabled={!compact || mapInteractive} />
-            {visibleGeoData && <GeoJSON data={visibleGeoData} key={`${metric}-${query}-${lastUpdated}`} onEachFeature={bindFeature} style={featureStyle} />}
+            {visibleGeoData && <GeoJSON data={visibleGeoData} key={`${metric}-${query}-${lastUpdated}-${Math.floor(now / 60000)}`} onEachFeature={bindFeature} style={featureStyle} />}
           </MapContainer>
           {compact && !mapInteractive && <button className="map-touch-gate" onClick={() => setMapInteractive(true)} type="button"><Hand aria-hidden="true" size={18} /> แตะเพื่อเลื่อนและซูมแผนที่</button>}
           {compact && mapInteractive && <button className="map-touch-exit" onClick={() => setMapInteractive(false)} type="button">เลื่อนหน้าต่อ</button>}
-          <div className="map-legend" aria-label={`คำอธิบายสี ${meta.unit}`}>{legendValues.map((v, i) => <span key={v}><i style={{ background: getMetricTone(metric, v) }} /> {legendLabels[i]}</span>)}<span><i style={{ background: getMetricTone(metric, null) }} /> ไม่มีข้อมูล</span></div>
+          <div className="map-legend" aria-label={`คำอธิบายสี ${meta.unit}`}>{legendValues.map((v, i) => <span key={v}><i style={{ background: getMetricTone(metric, v) }} /> {legendLabels[i]}</span>)}<span><i style={{ background: getMetricTone(metric, null) }} /> เก่า / ไม่พร้อม</span></div>
         </section>
       </div>
     </div>

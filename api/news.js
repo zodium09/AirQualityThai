@@ -1,4 +1,5 @@
 ﻿import { GoogleGenerativeAI } from '@google/generative-ai';
+import { issueTimeOf, isRecentNews, newsTimestamp, normalizeSourceStatus } from '../src/server/newsIntegrity.js';
 
 // Module-level cache (survives across warm Vercel invocations and local dev reloads)
 let _newsCache = null;
@@ -309,7 +310,7 @@ function classifyFreshnessHours(item) {
 }
 
 function isFreshEnough(item) {
-  return hoursSince(item.publishedAt) <= classifyFreshnessHours(item);
+  return isRecentNews(item, classifyFreshnessHours(item));
 }
 
 function severityScore(severity) {
@@ -350,6 +351,9 @@ function recencyScore(item) {
 function normalizeNewsItem(item) {
   return {
     ...item,
+    issuedAt: issueTimeOf(item),
+    publishedAt: issueTimeOf(item),
+    dateConfidence: issueTimeOf(item) ? 'source' : 'unknown',
     title: cleanText(item.title || ''),
     summary: summarizeForReaders(item.summary || ''),
   };
@@ -406,7 +410,7 @@ function isActionableNewsItem(item) {
   return true;
 }
 
-function prioritizeItems(items = [], limit = items.length) {
+export function prioritizeItems(items = [], limit = items.length) {
   return items
     .map(normalizeNewsItem)
     .filter((item) => item.title && isFreshEnough(item) && isActionableNewsItem(item))
@@ -683,7 +687,7 @@ async function fetchClimateNews() {
 
   // Sort by publishedAt, deduplicate by title prefix
   const seen = new Set();
-  return items
+  const filtered = items
     .filter((item) => {
       if (!item.title) return false;
       const key = item.title.slice(0, 40).toLowerCase();
@@ -693,6 +697,8 @@ async function fetchClimateNews() {
     })
     .sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0))
     .slice(0, 12);
+  filtered.fetchStatus = { nasa: results[0].status, wmo: results[1].status };
+  return filtered;
 }
 
 function stripMarkdownJson(text = '') {
@@ -854,15 +860,6 @@ async function maybeGenerateAiSummary(payload) {
   return null;
 }
 
-function normalizeSourceStatus(label, result, count = 0) {
-  if (result.status === 'fulfilled') return { label, status: 'ok', count };
-  return {
-    label,
-    status: 'error',
-    count: 0,
-    error: result.reason?.message || 'Unknown error',
-  };
-}
 
 function topicFromItem(item = {}) {
   const text = `${item.category || ''} ${item.eventType || ''} ${item.title || ''} ${item.summary || ''} ${item.rawSummary || ''}`.toLowerCase();
@@ -912,12 +909,12 @@ function extractEventAreas(item = {}) {
   const provinceMatches = text.match(/(?:จังหวัด|จ\.)\s*[\u0E00-\u0E7F]{2,24}/g) || [];
   provinceMatches.slice(0, 4).forEach((match) => areas.add(normalizeEventArea(match)));
 
-  if (/ประเทศไทย|ไทย|Thailand/i.test(text) || /TMD|DDPM|ปภ|Thai/i.test(item.source || '')) areas.add('ประเทศไทย');
+  if (/ประเทศไทย|Thailand/i.test(text) || item.scope === 'thailand') areas.add('ประเทศไทย');
   return [...areas].filter(Boolean).slice(0, 5);
 }
 
 function eventTimeBucket(item = {}) {
-  const parsed = parseDateValue(item.publishedAt || item.time || item.updatedAt || item.scrapedAt);
+  const parsed = parseDateValue(item.publishedAt || item.time || item.updatedAt);
   if (!parsed) return 'unknown';
   const hours = item.category === 'climate' ? 24 * 14 : 72;
   return Math.floor(parsed.getTime() / (hours * 60 * 60 * 1000));
@@ -937,12 +934,12 @@ function keywordFingerprint(item = {}) {
 
 function eventKeyForItem(item = {}) {
   const topic = topicFromItem(item);
-  const area = extractEventAreas(item)[0] || item.country || 'global';
+  const area = extractEventAreas(item)[0] || item.country || 'unknown';
   return `${topic}:${normalizeEventArea(area).toLowerCase()}:${eventTimeBucket(item)}:${keywordFingerprint(item).slice(0, 44)}`;
 }
 
 function lifecycleForCluster(items = [], topic = 'news', severity = 'normal') {
-  const newestHours = Math.min(...items.map((item) => hoursSince(item.publishedAt || item.time || item.updatedAt || item.scrapedAt) ?? 9999));
+  const newestHours = Math.min(...items.map((item) => hoursSince(item.publishedAt || item.time || item.updatedAt) ?? 9999));
   if (topic === 'climate') return 'monitoring';
   if (newestHours <= 6) return 'new';
   if (severity === 'high' && newestHours <= 48) return 'impacting';
@@ -953,7 +950,7 @@ function lifecycleForCluster(items = [], topic = 'news', severity = 'normal') {
 
 function confidenceForCluster(items = []) {
   const sources = [...new Set(items.map((item) => item.source).filter(Boolean))];
-  const hasTime = items.some((item) => parseDateValue(item.publishedAt || item.time || item.updatedAt || item.scrapedAt));
+  const hasTime = items.some((item) => parseDateValue(item.publishedAt || item.time || item.updatedAt));
   const hasArea = items.some((item) => extractEventAreas(item).length);
   const officialScore = Math.max(0, ...sources.map(sourceAuthorityScore));
   const score = 42
@@ -973,10 +970,10 @@ function confidenceLabel(score) {
 function buildEventTimeline(items = []) {
   const sorted = [...items]
     .filter((item) => item.title)
-    .sort((a, b) => (parseDateValue(a.publishedAt || a.time || a.updatedAt || a.scrapedAt)?.getTime() || 0) - (parseDateValue(b.publishedAt || b.time || b.updatedAt || b.scrapedAt)?.getTime() || 0));
+    .sort((a, b) => (parseDateValue(a.publishedAt || a.time || a.updatedAt)?.getTime() || 0) - (parseDateValue(b.publishedAt || b.time || b.updatedAt)?.getTime() || 0));
   const compact = [];
   sorted.forEach((item, index) => {
-    const when = item.publishedAt || item.time || item.updatedAt || item.scrapedAt || null;
+    const when = item.publishedAt || item.time || item.updatedAt || null;
     const label = index === 0 ? 'first_signal' : item.severity === 'high' ? 'impact_update' : 'source_update';
     compact.push({
       label,
@@ -989,9 +986,9 @@ function buildEventTimeline(items = []) {
   return compact.slice(-5);
 }
 
-function buildNewsEvents(items = []) {
+export function buildNewsEvents(items = []) {
   const clusters = new Map();
-  items.filter(Boolean).forEach((item) => {
+  items.filter(item => item && isFreshEnough(item)).forEach((item) => {
     const normalized = enrichItem(item);
     const key = eventKeyForItem(normalized);
     if (!clusters.has(key)) clusters.set(key, []);
@@ -1002,13 +999,14 @@ function buildNewsEvents(items = []) {
     .map((cluster) => {
       const sorted = prioritizeItems(cluster, cluster.length);
       const lead = sorted[0];
+      if (!lead) return null;
       const topic = topicFromItem(lead);
       const severity = eventSeverityFromScore(Math.max(...sorted.map((item) => eventSeverityScore(item.severity))));
       const areas = [...new Set(sorted.flatMap(extractEventAreas))].slice(0, 6);
       const sources = [...new Set(sorted.map((item) => item.source).filter(Boolean))];
       const confidence = confidenceForCluster(sorted);
       const publishedDates = sorted
-        .map((item) => parseDateValue(item.publishedAt || item.time || item.updatedAt || item.scrapedAt))
+        .map((item) => parseDateValue(item.publishedAt || item.time || item.updatedAt))
         .filter(Boolean)
         .sort((a, b) => b.getTime() - a.getTime());
       return {
@@ -1023,7 +1021,7 @@ function buildNewsEvents(items = []) {
         sourceCount: sources.length,
         sources,
         areas,
-        primaryArea: areas[0] || lead.country || 'หลายพื้นที่',
+        primaryArea: areas[0] || lead.country || null,
         publishedAt: publishedDates[publishedDates.length - 1]?.toISOString() || lead.publishedAt || null,
         updatedAt: publishedDates[0]?.toISOString() || lead.updatedAt || lead.publishedAt || null,
         url: lead.url || lead.link || null,
@@ -1035,11 +1033,12 @@ function buildNewsEvents(items = []) {
           source: item.source,
           category: item.category,
           severity: item.severity,
-          publishedAt: item.publishedAt || item.time || item.updatedAt || item.scrapedAt || null,
+          publishedAt: item.publishedAt || item.time || item.updatedAt || null,
           url: item.url || item.link || null,
         })),
       };
     })
+    .filter(Boolean)
     .sort((a, b) => {
       const severityDiff = eventSeverityScore(b.severity) - eventSeverityScore(a.severity);
       if (severityDiff) return severityDiff;
@@ -1087,14 +1086,14 @@ function walkTree(obj, callback, _depth = 0) {
 
 function makeTmdItem(title, summary, link, category, severity = 'normal', meta = {}) {
   const cleanedSummary = cleanText(summary || '');
-  const publishedAt = meta.publishedAt || null;
+  const publishedAt = newsTimestamp(meta.publishedAt);
   return enrichItem({
     title: cleanText(title || '').slice(0, 200),
     summary: summarizeForReaders(cleanedSummary),
     rawSummary: cleanedSummary.slice(0, 2500),
     publishedAt,
-    dateConfidence: publishedAt ? 'scraped' : 'unknown',
-    scrapedAt: isoNow(),
+    dateConfidence: publishedAt ? 'source' : 'unknown',
+    fetchedAt: isoNow(),
     link,
     url: link,
     severity,
@@ -1422,6 +1421,7 @@ async function fetchTmdWebPages() {
     sevenday: parsePage(sevendayRes, TMD_WEB.sevenday, 'sevenday'),
     storm: parsePage(stormRes, TMD_WEB.storm, 'storm'),
     regions: regionsRaw.status === 'fulfilled' ? regionsRaw.value : [],
+    fetchStatus: { daily: dailyRes.status, sevenday: sevendayRes.status, storm: stormRes.status, regions: regionsRaw.status },
   };
 }
 
@@ -1445,7 +1445,7 @@ async function fetchEonetEvents() {
       if (lat >= -10 && lat <= 35 && lon >= 88 && lon <= 145) country = 'ภูมิภาคเอเชียตะวันออกเฉียงใต้';
     }
 
-    const date = geom?.date || event.geometry?.[event.geometry.length - 1]?.date || isoNow();
+    const date = newsTimestamp(geom?.date || event.geometry?.[event.geometry.length - 1]?.date);
     items.push({
       id: `eonet-${event.id}`,
       title: event.title,
@@ -1499,10 +1499,12 @@ async function fetchUsgsRegional() {
 async function fetchThaiPbsRss() {
   const htmlHeaders = { 'User-Agent': 'Mozilla/5.0', Accept: 'application/rss+xml,text/xml,*/*' };
   const KEYWORDS_RE = /ฝน|พายุ|น้ำท่วม|แผ่นดินไหว|ภัย|อากาศ|ร้อน|ไฟ|ฝุ่น|หมอก|สภาพ|ดิน/;
+  let readAny = false;
   for (const url of THAIPBS_RSS_CANDIDATES) {
     try {
       const xml = await fetchText(url, { headers: htmlHeaders }, 8000);
       if (!xml) continue;
+      readAny = true;
       const items = [];
       const itemMatches = xml.matchAll(/<item[^>]*>([\s\S]*?)<\/item>/gi);
       for (const m of itemMatches) {
@@ -1521,7 +1523,8 @@ async function fetchThaiPbsRss() {
           severity: 'normal',
           eventLabel: 'ข่าวไทยพีบีเอส',
           url: link,
-          publishedAt: pubDate ? new Date(pubDate).toISOString() : isoNow(),
+          publishedAt: newsTimestamp(pubDate),
+          fetchedAt: isoNow(),
           lang: 'th',
         });
         if (items.length >= 10) break;
@@ -1529,11 +1532,12 @@ async function fetchThaiPbsRss() {
       if (items.length > 0) return items;
     } catch (_) { /* try next candidate */ }
   }
+  if (!readAny) throw new Error('Unable to read Thai PBS sources');
   return [];
 }
 
 // ─── DDPM (กรมป้องกันและบรรเทาสาธารณภัย) ────────────────────────────────────
-function parseDdpmHtml(html) {
+export function parseDdpmHtml(html) {
   const items = [];
   const thaiRe = /[\u0E00-\u0E7F]{4,}/g;
   const paragraphs = html
@@ -1552,7 +1556,9 @@ function parseDdpmHtml(html) {
       severity: /เตือน|ภัย|วิกฤต|ฉุกเฉิน/.test(p) ? 'high' : 'medium',
       eventLabel: 'ปภ. แจ้งเตือน',
       url: DDPM_WEB,
-      publishedAt: isoNow(),
+      publishedAt: null,
+      dateConfidence: 'unknown',
+      fetchedAt: isoNow(),
       lang: 'th',
     });
   }
@@ -1584,19 +1590,21 @@ async function fetchDdpmPage() {
           severity: /เตือน|ภัย|วิกฤต|ฉุกเฉิน/.test(t) ? 'high' : 'medium',
           eventLabel: 'ปภ. แจ้งเตือน',
           url: DDPM_WEB,
-          publishedAt: isoNow(),
+          publishedAt: null,
+          dateConfidence: 'unknown',
+          fetchedAt: isoNow(),
           lang: 'th',
         }));
       }
     }
     return parseDdpmHtml(html);
-  } catch (_) {
-    return [];
+  } catch {
+    throw new Error('Unable to read DDPM source');
   }
 }
 
 // ─── TMD Earthquake Division ─────────────────────────────────────────────────
-function parseTmdEqHtml(html) {
+export function parseTmdEqHtml(html) {
   const items = [];
   const thaiRe = /[\u0E00-\u0E7F]{3,}/g;
   const rows = html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi);
@@ -1618,7 +1626,9 @@ function parseTmdEqHtml(html) {
       eventLabel: 'แผ่นดินไหว',
       magnitude: mag,
       url: TMD_EQ_WEB,
-      publishedAt: isoNow(),
+      publishedAt: null,
+      dateConfidence: 'unknown',
+      fetchedAt: isoNow(),
       lang: 'th',
     });
     if (items.length >= 8) break;
@@ -1652,7 +1662,8 @@ async function fetchTmdEqPage() {
             eventLabel: 'แผ่นดินไหว',
             magnitude: mag,
             url: TMD_EQ_WEB,
-            publishedAt: v.datetime || v.date || v.time || isoNow(),
+            publishedAt: newsTimestamp(v.datetime || v.date),
+            fetchedAt: isoNow(),
             lang: 'th',
           });
         }
@@ -1660,8 +1671,8 @@ async function fetchTmdEqPage() {
       if (eqItems.length) return eqItems.slice(0, 8);
     }
     return parseTmdEqHtml(html);
-  } catch (_) {
-    return [];
+  } catch {
+    throw new Error('Unable to read TMD earthquake source');
   }
 }
 
@@ -1789,11 +1800,11 @@ export default async function handler(req, res) {
     ...eonetItems.filter((i) => i.severity === 'high'),
   ], 12);
 
-  const tmdWebCount = tmdWeb.daily.length + tmdWeb.sevenday.length + tmdWeb.storm.length + tmdWeb.regions.length;
+  const tmdWebCount = prioritizeItems([...tmdWeb.daily, ...tmdWeb.sevenday, ...tmdWeb.storm, ...tmdWeb.regions]).length;
 
   const sourceStatus = [
     normalizeSourceStatus('Open-Meteo', tasks[0], weather.days?.length || 0),
-    normalizeSourceStatus('TMD XML', tasks[1], tmd.forecast.length + tmd.warnings.length + tmd.storm.length + tmd.earthquake.length),
+    normalizeSourceStatus('TMD XML', tasks[1], prioritizeItems([...tmd.forecast, ...tmd.warnings, ...tmd.storm, ...tmd.earthquake]).length),
     normalizeSourceStatus('TMD Web (พยากรณ์/เตือนภัย)', tasks[7], tmdWebCount),
     normalizeSourceStatus('GDACS', tasks[2], globalAlerts.length),
     normalizeSourceStatus('USGS', tasks[3], globalEarthquakes.length),
@@ -1803,8 +1814,8 @@ export default async function handler(req, res) {
     normalizeSourceStatus('NASA Climate / WMO', tasks[6], climateItems.length),
     normalizeSourceStatus('NASA EONET', tasks[8], eonetItems.length),
     normalizeSourceStatus('Thai PBS', tasks[10], thaiPbsItems.length),
-    normalizeSourceStatus('ปภ. (DDPM)', tasks[11], ddpmRaw.length),
-    normalizeSourceStatus('TMD แผ่นดินไหว', tasks[12], tmdEqRaw.length),
+    normalizeSourceStatus('ปภ. (DDPM)', tasks[11], prioritizeItems(ddpmRaw).length),
+    normalizeSourceStatus('TMD แผ่นดินไหว', tasks[12], prioritizeItems(tmdEqRaw).length),
   ];
 
   const deterministicDigest = buildDigest({
@@ -1839,7 +1850,9 @@ export default async function handler(req, res) {
   ]);
 
   const payload = {
+    schemaVersion: 3,
     generatedAt: isoNow(),
+    partial: sourceStatus.some(source => source.status !== 'ok'),
     digest,
     weather,
     events,

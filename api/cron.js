@@ -1,7 +1,8 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getDatabase, ref, set } from 'firebase/database';
 import { provinces77 } from '../src/provinces77.js';
-import { dailyAirMax, providerSlots, roundedOrNull } from '../src/server/providerData.js';
+import { currentForecast, dailyAirMax, dailyForecast, providerSlots, roundedOrNull } from '../src/server/providerData.js';
+import { bangkokDateKey, isStaleTime, weatherDate } from '../src/utils/weatherData.js';
 
 // TMD API Regions — 6 calls ได้ข้อมูลทั้งประเทศ
 const TMD_REGIONS = ['N', 'NE', 'C', 'E', 'W', 'S'];
@@ -23,16 +24,15 @@ const provMap = {
 
 // ===== TMD API Helper =====
 async function fetchTmdRegions(token) {
-    const regions = ['N', 'NE', 'C', 'E', 'S', 'W'];
     let allForecasts = [];
 
-    for (const region of regions) {
+    for (const region of TMD_REGIONS) {
         try {
             // ไม่ใส่ date/hour — ให้ TMD คืนข้อมูลพยากรณ์ล่าสุดอัตโนมัติ
             const url = `${TMD_BASE}/hourly/region?region=${region}&fields=${TMD_FIELDS}&duration=1`;
             console.log(`TMD fetching: ${url}`);
             const res = await fetch(url, {
-                headers: {
+                signal: AbortSignal.timeout(15000), headers: {
                     'accept': 'application/json',
                     'authorization': `Bearer ${token}`
                 }
@@ -77,19 +77,16 @@ function processTmdData(forecasts) {
             province: provName,
             amphoe: amphoeName,
             areatype,
-            lat: loc.lat, 
-            lon: loc.lon, 
+            lat: roundedOrNull(loc.lat, 6),
+            lon: roundedOrNull(loc.lon, 6),
             geocode: loc.geocode || '',
-            tc: d.tc != null ? Math.round(d.tc * 10) / 10 : null,
-            rh: d.rh != null ? Math.round(d.rh) : null,
-            rain: d.rain != null ? Math.round(d.rain * 10) / 10 : null,
-            slp: d.slp != null ? Math.round(d.slp) : null,
-            cond: d.cond != null ? d.cond : null,
+            validAt: item.forecasts?.[0]?.time || null,
+            source: 'tmd-nwp-model',
+            tc: roundedOrNull(d.tc, 1), rh: roundedOrNull(d.rh), rain: roundedOrNull(d.rain, 1),
+            slp: roundedOrNull(d.slp), cond: roundedOrNull(d.cond),
             hourlyForecasts: (item.forecasts || []).slice(0, 24).map(fc => ({
-                time: fc.time,
-                tc: fc.data?.tc,
-                rh: fc.data?.rh,
-                rain: fc.data?.rain
+                time: fc.time || null,
+                tc: roundedOrNull(fc.data?.tc, 1), rh: roundedOrNull(fc.data?.rh), rain: roundedOrNull(fc.data?.rain, 1)
             }))
         };
 
@@ -138,8 +135,6 @@ export default async function handler(req, res) {
     const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
     const db = getDatabase(app, dbUrl);
 
-    const bangkokTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
-    const currentHour = bangkokTime.getHours();
     const timestamp = Date.now();
 
     // ========================================
@@ -180,8 +175,8 @@ export default async function handler(req, res) {
       const lats = chunk.map(p => p.lat).join(',');
       const lons = chunk.map(p => p.lon).join(',');
 
-      const wUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m,wind_direction_10m&hourly=temperature_2m,apparent_temperature,precipitation_probability,wind_speed_10m,uv_index&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,precipitation_probability_max,precipitation_sum,uv_index_max,wind_speed_10m_max&timezone=Asia%2FBangkok&past_days=7&forecast_days=8&_t=${timestamp}`;
-      const aUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lats}&longitude=${lons}&current=pm2_5&hourly=pm2_5&timezone=Asia%2FBangkok&past_days=7&forecast_days=7&_t=${timestamp}`;
+      const wUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m,wind_gusts_10m,wind_direction_10m&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,wind_speed_10m,wind_gusts_10m,wind_direction_10m,uv_index&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,precipitation_probability_max,precipitation_sum,uv_index_max,wind_speed_10m_max,wind_gusts_10m_max&timezone=Asia%2FBangkok&wind_speed_unit=kmh&past_days=7&forecast_days=8&_t=${timestamp}`;
+      const aUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lats}&longitude=${lons}&current=pm2_5&hourly=pm2_5&timezone=Asia%2FBangkok&past_days=7&forecast_days=5&_t=${timestamp}`;
 
       const results = await Promise.allSettled([wUrl, aUrl].map(async url => {
         const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
@@ -212,43 +207,38 @@ export default async function handler(req, res) {
       // Try to find TMD data for this province
       const tmdProv = tmdProvinceMap[p.n];
       const tmdData = tmdProv?.provinceLevelData || null;
-      const hasTmd = tmdSuccess && tmdData && tmdData.tc != null;
+      const current = currentForecast(w, a, tmdSuccess ? tmdData : null, timestamp);
+      const hasTmd = current.source === 'tmd';
 
       newStations.push({
         stationID: sID, areaTH: p.n, lat: p.lat, long: p.lon,
         AQILast: { PM25: { value: roundedOrNull(a.current?.pm2_5) } },
         pm25Source: 'cams-model',
         pm25Time: a.current?.time || null,
-        weatherTime: w.current?.time || null,
+        weatherTime: current.weatherTime,
+        weatherLocation: current.weatherLocation,
+        pm25Average24h: current.pm25Average24h, pm25ValidHours24h: current.pm25ValidHours24h,
+        pm25WindowStart: current.pm25WindowStart, pm25WindowEnd: current.pm25WindowEnd,
+        airStale: current.airStale, stale: current.stale,
         // Flag source
         dataSource: hasTmd ? 'tmd' : 'openmeteo',
         tmdCond: hasTmd ? tmdData.cond : null
       });
 
-      // With past_days=7: daily[0]=7 days ago, daily[6]=yesterday, daily[7]=today, daily[8]=tomorrow
-      // Hourly: [7*24 + currentHour] = current hour today, [6*24 + currentHour] = same hour yesterday
-      const yesterdayDailyIdx = 6;
-      const todayHourlyIdx = 7 * 24 + currentHour;
-      const yesterdayHourlyIdx = 6 * 24 + currentHour;
+      // Match timestamps, never fixed positions: providers can omit hours or days.
+      const yesterdayDate = bangkokDateKey(timestamp - 86400000);
+      const yesterdayDailyIdx = w.daily?.time?.indexOf(yesterdayDate) ?? -1;
+      const currentTime = weatherDate(w.current?.time).getTime();
+      const yesterdayHour = Math.floor((Number.isFinite(currentTime) ? currentTime : timestamp) / 3600000) * 3600000 - 86400000;
+      const yesterdayHourlyIdx = w.hourly?.time?.findIndex(time => weatherDate(time).getTime() === yesterdayHour) ?? -1;
+      const yesterdayAirIdx = a.hourly?.time?.findIndex(time => weatherDate(time).getTime() === yesterdayHour) ?? -1;
 
       // Current values: TMD primary, OpenMeteo fallback
-      newTemps[sID] = {
-        temp: roundedOrNull(hasTmd ? tmdData.tc : w.current?.temperature_2m),
-        feelsLike: roundedOrNull(w.current?.apparent_temperature),
-        humidity: roundedOrNull(tmdData?.rh ?? w.current?.relative_humidity_2m),
-        rainProb: roundedOrNull(w.hourly?.precipitation_probability?.[todayHourlyIdx]),
-        rainMm: roundedOrNull(hasTmd ? tmdData.rain : w.current?.precipitation, 1),
-        windSpeed: roundedOrNull(w.current?.wind_speed_10m),
-        windDir: roundedOrNull(w.current?.wind_direction_10m),
-        uv: roundedOrNull(w.hourly?.uv_index?.[todayHourlyIdx]),
-        pressure: hasTmd ? (tmdData.slp || null) : null,
-        cond: hasTmd ? tmdData.cond : null,
-        source: hasTmd ? 'tmd' : 'openmeteo'
-      };
+      newTemps[sID] = current;
 
       // Yesterday comparison — still from Open-Meteo (has historical data)
       const prevTemp = w.hourly?.temperature_2m?.[yesterdayHourlyIdx];
-      const prevPm25 = a.hourly?.pm2_5?.[yesterdayHourlyIdx];
+      const prevPm25 = a.hourly?.pm2_5?.[yesterdayAirIdx];
       const prevUv = w.hourly?.uv_index?.[yesterdayHourlyIdx];
       const prevRain = w.hourly?.precipitation_probability?.[yesterdayHourlyIdx];
       const prevWind = w.hourly?.wind_speed_10m?.[yesterdayHourlyIdx];
@@ -256,39 +246,40 @@ export default async function handler(req, res) {
       newYesterday[sID] = {
         temp: roundedOrNull(prevTemp),
         minTemp: roundedOrNull(w.daily?.temperature_2m_min?.[yesterdayDailyIdx]),
+        tempMin: roundedOrNull(w.daily?.temperature_2m_min?.[yesterdayDailyIdx]),
+        tempMax: roundedOrNull(w.daily?.temperature_2m_max?.[yesterdayDailyIdx]),
+        rainMm: roundedOrNull(w.daily?.precipitation_sum?.[yesterdayDailyIdx], 1), rainDate: yesterdayDate,
         pm25: roundedOrNull(prevPm25), uv: roundedOrNull(prevUv),
-        rain: roundedOrNull(prevRain), wind: roundedOrNull(prevWind)
+        rain: roundedOrNull(prevRain), wind: roundedOrNull(prevWind),
+        weatherTime: w.hourly?.time?.[yesterdayHourlyIdx] || null, pm25Time: a.hourly?.time?.[yesterdayAirIdx] || null, source: 'open-meteo-model'
       };
-      const yesterdayDate = w.daily?.time?.[yesterdayDailyIdx];
       newMaxYesterday[sID] = {
         temp: roundedOrNull(w.daily?.temperature_2m_max?.[yesterdayDailyIdx]),
+        tempMax: roundedOrNull(w.daily?.temperature_2m_max?.[yesterdayDailyIdx]), tempMin: roundedOrNull(w.daily?.temperature_2m_min?.[yesterdayDailyIdx]),
         pm25: dailyAirMax([yesterdayDate], a.hourly)[0],
         uv: roundedOrNull(w.daily?.uv_index_max?.[yesterdayDailyIdx]),
         rain: roundedOrNull(w.daily?.precipitation_sum?.[yesterdayDailyIdx], 1),
+        rainMm: roundedOrNull(w.daily?.precipitation_sum?.[yesterdayDailyIdx], 1), rainDate: yesterdayDate,
         wind: roundedOrNull(w.daily?.wind_speed_10m_max?.[yesterdayDailyIdx])
       };
 
       // Daily arrays for Map Slider
-      const dailyDates = w.daily?.time || [];
-      const dailyPm25Values = dailyAirMax(dailyDates, a.hourly);
-
-      newDaily[sID] = {
-          dates: dailyDates,
-          temp: w.daily?.temperature_2m_max?.map(v => roundedOrNull(v)) || [],
-          heat: w.daily?.apparent_temperature_max?.map(v => roundedOrNull(v)) || [],
-          pm25: dailyPm25Values,
-          rain: w.daily?.precipitation_probability_max?.map(v => roundedOrNull(v)) || [],
-          wind: w.daily?.wind_speed_10m_max?.map(v => roundedOrNull(v)) || [],
-          uv: w.daily?.uv_index_max?.map(v => roundedOrNull(v)) || []
-      };
+      newDaily[sID] = dailyForecast(w, a);
     });
 
     // ========================================
     // STEP 4: Save Province-level to Firebase (weather_data — compatible path)
     // ========================================
+    const validTimes = newStations.flatMap(station => [
+        newTemps[station.stationID].temp !== null ? station.weatherTime : null,
+        station.AQILast.PM25.value !== null ? station.pm25Time : null,
+    ]).map(time => weatherDate(time).getTime()).filter(Number.isFinite);
+    const oldestValidTime = validTimes.length ? Math.min(...validTimes) : null;
     const payload = {
-        schemaVersion: 2,
-        lastUpdated: new Date(timestamp).toISOString(),
+        schemaVersion: 3,
+        lastUpdated: oldestValidTime === null ? null : new Date(oldestValidTime).toISOString(),
+        fetchedAt: new Date(timestamp).toISOString(),
+        stale: oldestValidTime === null || isStaleTime(oldestValidTime, timestamp),
         tmdAvailable: tmdSuccess,
         stations: newStations,
         stationTemps: newTemps,
@@ -321,7 +312,7 @@ export default async function handler(req, res) {
                 tc: a.tc,
                 rh: a.rh,
                 rain: a.rain,
-                cond: a.cond
+                cond: a.cond, validAt: a.validAt, source: a.source
             }));
 
             // เก็บข้อมูลระดับจังหวัดด้วย (ใช้แทนอำเภอเมื่อ /region ไม่มีอำเภอ)
@@ -338,7 +329,7 @@ export default async function handler(req, res) {
                         slp: provLevel.slp,
                         cond: provLevel.cond,
                         lat: provLevel.lat,
-                        lon: provLevel.lon
+                        lon: provLevel.lon, validAt: provLevel.validAt, source: provLevel.source
                     } : null
                 };
             }
@@ -354,12 +345,15 @@ export default async function handler(req, res) {
     console.log("Cron: กำลังดึงข้อมูล GISTDA...");
     let hotspotsTop5 = [];
     let burntAreaTop5 = [];
+    let hotspotsAvailable = false;
+    let burntAreaAvailable = false;
 
     try {
-        const fireRes = await fetch("https://disaster.gistda.or.th/app-api/services/viirs/7days");
+        const fireRes = await fetch("https://disaster.gistda.or.th/app-api/services/viirs/7days", { signal: AbortSignal.timeout(15000) });
         if (fireRes.ok) {
             const fireData = await fireRes.json();
-            if (fireData && fireData.items) {
+            if (Array.isArray(fireData?.items)) {
+                hotspotsAvailable = true;
                 const provCount = {};
                 fireData.items.forEach(it => {
                     const provCode = String(it.amphoeCode).substring(0, 2);
@@ -374,10 +368,11 @@ export default async function handler(req, res) {
     } catch(e) { console.error("Cron GISTDA Fire Error:", e); }
 
     try {
-        const burnRes = await fetch("https://disaster.gistda.or.th/app-api/analytics/services/burn_10_Days/burn_10_days?sort=provinceCode:asc,amphoeCode:asc,tambonCode:asc,lu_name:asc,area:asc&offset=0&limit=10000");
+        const burnRes = await fetch("https://disaster.gistda.or.th/app-api/analytics/services/burn_10_Days/burn_10_days?sort=provinceCode:asc,amphoeCode:asc,tambonCode:asc,lu_name:asc,area:asc&offset=0&limit=10000", { signal: AbortSignal.timeout(15000) });
         if (burnRes.ok) {
             const burnData = await burnRes.json();
-            if (burnData && burnData.items) {
+            if (Array.isArray(burnData?.items)) {
+                burntAreaAvailable = true;
                 const provCount = {};
                 burnData.items.forEach(it => {
                     const provCode = String(it.amphoeCode).substring(0, 2);
@@ -393,21 +388,11 @@ export default async function handler(req, res) {
 
     const gistdaPayload = {
         lastUpdated: new Date(timestamp).toISOString(),
-        hotspots: hotspotsTop5.length > 0 ? hotspotsTop5 : [
-            { province: 'แม่ฮ่องสอน', value: 4124 }, { province: 'กาญจนบุรี', value: 2849 }, { province: 'น่าน', value: 1742 }, { province: 'เชียงใหม่', value: 1507 }, { province: 'ชัยภูมิ', value: 1403 }
-        ],
-        burntArea: burntAreaTop5.length > 0 ? burntAreaTop5 : [
-            { province: 'ลพบุรี', value: 417952 }, { province: 'อุตรดิตถ์', value: 355866 }, { province: 'ลำปาง', value: 320364 }, { province: 'นครสวรรค์', value: 291761 }, { province: 'เลย', value: 258900 }
-        ],
-        lowSoilMoisture: [
-            { province: 'แม่ฮ่องสอน', value: 3.36 }, { province: 'เชียงใหม่', value: 3.52 }, { province: 'อุตรดิตถ์', value: 5.91 }, { province: 'ตาก', value: 6.09 }, { province: 'น่าน', value: 6.18 }
-        ],
-        lowVegetationMoisture: [
-            { province: 'สมุทรสงคราม', value: 0.09 }, { province: 'สุรินทร์', value: 0.07 }, { province: 'สุพรรณบุรี', value: 0.07 }, { province: 'สุโขทัย', value: 0.07 }, { province: 'ชัยนาท', value: 0.07 }
-        ],
-        floodArea: [
-            { province: '-', value: 0 }
-        ]
+        hotspots: hotspotsTop5, burntArea: burntAreaTop5,
+        lowSoilMoisture: [], lowVegetationMoisture: [], floodArea: [],
+        available: { hotspots: hotspotsAvailable, burntArea: burntAreaAvailable, lowSoilMoisture: false, lowVegetationMoisture: false, floodArea: false },
+        source: 'GISTDA',
+        missingReason: 'Unavailable datasets are empty; no fallback measurements are generated.'
     };
     await set(ref(db, 'gistda_disaster'), gistdaPayload);
 

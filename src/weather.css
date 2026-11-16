@@ -14,6 +14,14 @@
   --page-max: 1280px;
   --secondary: #1675df;
   --secondary-soft: #e7f2ff;
+  --risk-unknown: #536579;
+  --risk-info: #155fa0;
+  --risk-low: #166534;
+  --risk-cool: #075985;
+  --risk-watch: #92400e;
+  --risk-high: #9a3412;
+  --risk-danger: #b91c1c;
+  --risk-extreme: #6b21a8;
 }
 body { background: var(--bg); font-size: 16px; line-height: 1.6; }
 ::selection { color: #123c64; background: #bce5ff; }
@@ -269,3 +277,99 @@ body.dark-theme .wx-message { background: #493d21; color: #ffe2a1; }
   .wx-current-body p { font-size: .82rem; }
   .wx-current-bottom span:last-child { font-size: .7rem; }
 }
+/* Semantic readings: foreground colors have matching words and a shared legend. */
+.risk-value { display: inline; font-variant-numeric: tabular-nums; font-weight: 650; }
+.risk-info { color: var(--risk-info) !important; }
+.risk-low { color: var(--risk-low) !important; }
+.risk-cool { color: var(--risk-cool) !important; }
+.risk-watch { color: var(--risk-watch) !important; }
+.risk-high { color: var(--risk-high) !important; }
+.risk-danger { color: var(--risk-danger) !important; }
+.risk-extreme { color: var(--risk-extreme) !important; }
+.risk-unknown { color: var(--risk-unknown) !important; }
+.risk-value .risk-number { color: inherit; font-size: inherit; font-weight: inherit; }
+.risk-value .risk-caption { display: block; color: inherit; font-size: .75rem; font-weight: 550; margin-top: 4px; }
+.risk-label-only > .risk-number { display: none; }
+.risk-label-only > .risk-caption { display: inline; font-size: inherit; margin: 0; }
+.wx-temperature > .risk-value, .wx-temperature .risk-number { font-size: inherit; font-weight: inherit; line-height: inherit; margin: 0; letter-spacing: -.04em; }
+.wx-air-value > .risk-value, .wx-air-value .risk-number { font-size: inherit; font-weight: inherit; margin: 0; color: inherit; }
+.wx-reading > .risk-value { display: block; font-size: 1.05rem; }
+.wx-extremes { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 22px; padding: 14px 0 18px; border-top: 1px solid #b9dbf4; }
+.wx-extremes > span { font-size: .85rem; }
+.wx-extremes > div { display: grid; gap: 2px; }
+.wx-extremes small { color: #39617f; font-size: .76rem; }
+.wx-extremes .risk-value { font-size: 1.4rem; }
+.wx-extremes > small { margin-left: auto; }
+.wx-current-body { padding-bottom: 20px; }
+.wx-mountain-select { grid-column: 1 / -1; }
+.wx-mountain-select > span, .wx-place-note { display: flex; align-items: center; gap: 8px; }
+.wx-place-note { flex-wrap: wrap; color: var(--ink-soft); font-size: .85rem; margin: -6px 0 20px; }
+.wx-day { grid-template-columns: minmax(80px, 1.1fr) 28px minmax(90px, 1fr) 42px minmax(36px, 1fr) 42px; }
+.wx-day-rain { display: grid; gap: 2px; justify-items: end; font-size: .85rem; }
+.wx-day-rain small { font-size: .68rem; color: var(--muted); }
+.wx-day > .risk-value { text-align: right; }
+.wx-hour { min-width: 108px; }
+.wx-hour > time { font-size: .75rem; }
+.wx-hour > .risk-value { font-size: 1.15rem; }
+.wx-hour small { font-size: .68rem; color: var(--muted); }
+.risk-legend { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 12px 0; margin: 18px 0 24px; color: var(--ink-soft); font-size: .82rem; }
+.risk-legend summary { color: var(--primary-hover); cursor: pointer; min-height: 32px; padding: 4px; font-weight: 600; }
+.risk-legend p { max-width: 80ch; }
+.risk-legend li { margin-bottom: 10px; max-width: 100ch; }
+.risk-legend-swatches { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 14px 4px; font-weight: 650; }
+.wx-observations { margin-top: 24px; }
+.wx-observations h2 { display: flex; align-items: center; gap: 10px; }
+.station-columns { display: grid; grid-template-columns: 1.2fr 1fr; gap: 32px; }
+.station-columns > div + div { border-left: 1px solid var(--line); padding-left: 28px; }
+.station-columns h3 { font-size: .96rem; margin: 0 0 6px; }
+.station-columns p, .station-columns a { font-size: .82rem; color: var(--ink-soft); }
+.station-columns a { color: var(--primary-hover); }
+.station-values { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 18px 0; }
+.station-values > div > span:first-child { display: block; font-size: .76rem; color: var(--muted); margin-bottom: 4px; }
+.station-values .risk-value { font-size: 1.25rem; }
+.station-pm { display: block; font-size: 1.7rem; margin-top: 16px; }
+.map-scope-note { color: var(--ink-soft); font-size: .82rem; margin: 0 24px 12px; }
+.map-page > .risk-legend { margin: 0 24px 16px; }
+.map-page .province-row__value { min-width: 78px; }
+.map-page .province-row__name small { display: block; font-size: .72rem; line-height: 1.5; }
+.map-legend { flex-wrap: wrap; }
+.stats-daily-details { margin-top: 24px; }
+.stats-daily-details summary { cursor: pointer; min-height: 44px; color: var(--primary-hover); font-weight: 600; }
+.stats-table-scroll { overflow: auto; max-height: 560px; background: var(--surface); border-radius: 12px; }
+.stats-data-table { width: 100%; border-collapse: collapse; font-size: .84rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.stats-data-table caption { text-align: left; padding: 12px; white-space: normal; color: var(--muted); }
+.stats-data-table th, .stats-data-table td { padding: 12px; text-align: right; border-bottom: 1px solid var(--line); }
+.stats-data-table th:first-child { text-align: left; }
+.stats-data-table thead th { position: sticky; top: 0; background: var(--surface-2); color: var(--ink-soft); }
+.radar-history-image { height: 360px; min-height: 300px; position: relative; border-radius: 12px; overflow: hidden; background: var(--surface-2); margin: 16px 0; }
+.radar-history-image .leaflet-container { height: 100%; width: 100%; }
+.radar-history-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 16px 0; }
+.radar-history-controls input[type=range] { flex: 1; min-width: 120px; min-height: 44px; accent-color: var(--primary); }
+.radar-history-controls button { min-width: 44px; min-height: 44px; }
+body.dark-theme { --risk-unknown: #a6b6c8; --risk-info: #8ac9ff; --risk-low: #86efac; --risk-cool: #67e8f9; --risk-watch: #fcd34d; --risk-high: #fdba74; --risk-danger: #fca5a5; --risk-extreme: #d8b4fe; }
+body.dark-theme .wx-extremes small { color: #bdd9ee; }
+@media (max-width: 760px) {
+  .wx-extremes { gap: 10px 20px; }
+  .wx-extremes > small { display: none; }
+  .wx-extremes .risk-value { font-size: 1.2rem; }
+  .wx-day { grid-template-columns: minmax(58px, 1fr) 24px minmax(80px, 1fr) 34px 34px; gap: 8px; }
+  .wx-temp-range { display: none; }
+  .station-columns { grid-template-columns: 1fr; gap: 24px; }
+  .station-columns > div + div { border-left: 0; border-top: 1px solid var(--line); padding-left: 0; padding-top: 24px; }
+  .map-page > .risk-legend, .map-scope-note { margin-left: 16px; margin-right: 16px; }
+  .wx-place-note { font-size: .78rem; }
+  .wx-reading > .risk-value { font-size: .95rem; }
+  .risk-value .risk-caption { font-size: .7rem; }
+  .wx-day .risk-value { font-size: .8rem; }
+  .radar-history-image { height: 300px; }
+}
+.wx-mountain-outlook { margin-top: 24px; }
+.wx-mountain-outlook > summary { cursor: pointer; font-weight: 700; min-height: 44px; color: var(--ink); }
+.wx-mountain-outlook > summary svg { vertical-align: middle; margin-right: 8px; }
+.wx-mountain-outlook p, .wx-mountain-outlook small { font-size: .84rem; color: var(--ink-soft); }
+.wx-mountain-outlook a { font-size: .85rem; color: var(--primary-hover); }
+.mountain-places { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
+.mountain-places button { white-space: normal; text-align: left; }
+.mountain-regions { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin: 20px 0; }
+.mountain-regions h3 { font-size: 1rem; margin: 0; }
+@media (max-width: 760px) { .mountain-regions { grid-template-columns: 1fr; } }

@@ -1,168 +1,105 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BellRing, CloudRain, LocateFixed, Navigation, RadioTower, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
-import { usePushNotification } from '../hooks/usePushNotification';
+import { ChevronLeft, ChevronRight, LocateFixed, RadioTower, RefreshCw } from 'lucide-react';
+import { CircleMarker, MapContainer, TileLayer, Tooltip } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import { thaiTime } from '../utils/weatherData';
 
-const ALERTS_KEY = 'air4thai.rainAlertsEnabled';
-const LAST_ALERT_KEY = 'air4thai.lastRainAlert';
+const coverageLabels = {
+  covered: 'จุดที่เลือกอยู่ในขอบเขตครอบคลุมเรดาร์',
+  uncovered: 'จุดที่เลือกอยู่นอกขอบเขตครอบคลุมเรดาร์',
+  partial: 'จุดที่เลือกอยู่ใกล้ขอบเขตครอบคลุมเรดาร์',
+  unknown: 'ยังยืนยันความครอบคลุมเรดาร์ ณ จุดนี้ไม่ได้',
+};
 
-function trendIcon(trend) {
-  return trend === 'intensifying' ? TrendingUp : trend === 'weakening' ? TrendingDown : Navigation;
-}
-
-function alertTone(level, unavailable) {
-  if (unavailable) return 'fallback';
-  if (level >= 3) return 'urgent';
-  if (level >= 2) return 'warning';
-  if (level >= 1) return 'watch';
-  return 'clear';
-}
-
-function compactRadarSummary(data) {
-  if (!data || data.unavailable) return { label: 'เรดาร์ไม่พร้อม', tone: 'fallback' };
-  const eta = Number(data?.nowcast?.etaMinutes);
-  const probability = Number(data?.nowcast?.probability60 || 0);
-  if (data.alertLevel >= 3) return { label: eta > 0 ? `ฝนถึงใน ${eta} นาที` : 'ฝนกำลังเข้าใกล้', tone: 'urgent' };
-  if (data.alertLevel >= 2) return { label: 'เตรียมรับฝน', tone: 'warning' };
-  if (data.alertLevel >= 1) return { label: 'พบฝนใกล้พื้นที่', tone: 'watch' };
-  if (probability >= 50) return { label: 'โอกาสฝนสูง', tone: 'warning' };
-  if (probability >= 30) return { label: 'จับตาฝน', tone: 'watch' };
-  return { label: 'ยังไม่พบฝน', tone: 'clear' };
-}
-
-export default function RainNowcast({ coords, current, locationLabel, minutely, onSummaryChange, onUseLocation }) {
+export default function RainNowcast({ coords, locationLabel, onSummaryChange, onUseLocation }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [refreshToken, setRefreshToken] = useState(0);
-  const [alertsEnabled, setAlertsEnabled] = useState(() => localStorage.getItem(ALERTS_KEY) === '1');
-  const { isSupported, permission, requestPermission, sendLocalNotification } = usePushNotification();
-  const notifiedRef = useRef(localStorage.getItem(LAST_ALERT_KEY) || '');
+  const [frameIndex, setFrameIndex] = useState(0);
+  const [tileError, setTileError] = useState(false);
+  const [now, setNow] = useState(Date.now);
   const activeRequest = useRef(null);
+  const lastAttempt = useRef(0);
+  const summaryCallback = useRef(onSummaryChange);
+  useEffect(() => { summaryCallback.current = onSummaryChange; }, [onSummaryChange]);
+  const requestBody = useMemo(() => ({ lat: Number(coords?.lat), lon: Number(coords?.lon), locationLabel }), [coords?.lat, coords?.lon, locationLabel]);
 
-  const requestBody = useMemo(() => ({
-    lat: Number(coords?.lat),
-    lon: Number(coords?.lon),
-    windDir: Number(current?.windDirection || 0),
-    windSpeed: Number(current?.windSpeed || 0),
-    locationLabel,
-    minuteRain: (minutely?.precipitation || []).slice(0, 4),
-    minuteProb: (minutely?.precipitation_probability || []).slice(0, 4),
-  }), [coords?.lat, coords?.lon, current?.windDirection, current?.windSpeed, locationLabel, minutely?.precipitation, minutely?.precipitation_probability]);
-
-  const loadNowcast = useCallback(async (signal) => {
-    if (!Number.isFinite(requestBody.lat) || !Number.isFinite(requestBody.lon)) return;
+  const loadHistory = useCallback(async signal => {
     activeRequest.current?.abort();
     const controller = new AbortController();
     activeRequest.current = controller;
+    lastAttempt.current = Date.now();
     setLoading(true);
     setError('');
-    onSummaryChange?.({ label: 'กำลังสแกนฝน', tone: 'loading' });
+    summaryCallback.current?.({ label: 'กำลังโหลดภาพเรดาร์', tone: 'loading' });
     try {
       const response = await fetch('/api/radar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(requestBody),
-        signal: AbortSignal.any([controller.signal, ...(signal ? [signal] : []), AbortSignal.timeout(30000)]),
+        method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(requestBody),
+        signal: AbortSignal.any([controller.signal, ...(signal ? [signal] : []), AbortSignal.timeout(20000)]),
       });
-      if (!response.ok) throw new Error(`ระบบเรดาร์ตอบกลับ ${response.status}`);
+      if (!response.ok) throw new Error('Radar unavailable');
       const payload = await response.json();
       if (activeRequest.current !== controller || signal?.aborted) return;
       setData(payload);
-      onSummaryChange?.(compactRadarSummary(payload));
-    } catch (loadError) {
-      if (loadError.name !== 'AbortError' && activeRequest.current === controller && !signal?.aborted) {
-        setError('เชื่อมต่อการวิเคราะห์เรดาร์ไม่ได้ชั่วคราว');
-        onSummaryChange?.({ label: 'เรดาร์ไม่พร้อม', tone: 'fallback' });
+      setFrameIndex(Math.max(0, (payload.frames?.length || 0) - 1));
+      setTileError(false);
+      setNow(Date.now());
+      summaryCallback.current?.({ label: payload.unavailable ? 'เรดาร์ไม่พร้อม' : payload.stale ? 'ภาพเรดาร์เก่า' : 'ดูภาพเรดาร์ย้อนหลัง', tone: payload.unavailable || payload.stale ? 'fallback' : 'watch' });
+    } catch {
+      if (activeRequest.current === controller && !signal?.aborted && !controller.signal.aborted) {
+        setError('โหลดภาพเรดาร์ไม่ได้ชั่วคราว ลองอัปเดตอีกครั้ง');
+        summaryCallback.current?.({ label: 'เรดาร์ไม่พร้อม', tone: 'fallback' });
       }
     } finally {
-      if (!signal?.aborted && activeRequest.current === controller) setLoading(false);
+      if (activeRequest.current === controller && !signal?.aborted) setLoading(false);
     }
-  }, [onSummaryChange, requestBody]);
+  }, [requestBody]);
 
   useEffect(() => {
     const controller = new AbortController();
-    loadNowcast(controller.signal);
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') loadNowcast(controller.signal);
-    }, 10 * 60 * 1000);
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible' && Date.now() - refreshToken > 5 * 60 * 1000) loadNowcast(controller.signal);
+    setData(null);
+    loadHistory(controller.signal);
+    const refreshWhenVisible = () => {
+      setNow(Date.now());
+      if (document.visibilityState === 'visible' && Date.now() - lastAttempt.current >= 10 * 60 * 1000) loadHistory(controller.signal);
     };
-    document.addEventListener('visibilitychange', onVisibility);
+    const interval = window.setInterval(refreshWhenVisible, 60 * 1000);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => {
-      controller.abort();
-      activeRequest.current?.abort();
-      activeRequest.current = null;
-      window.clearInterval(interval);
-      document.removeEventListener('visibilitychange', onVisibility);
+      controller.abort(); activeRequest.current?.abort(); activeRequest.current = null;
+      window.clearInterval(interval); document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
-  }, [loadNowcast, refreshToken]);
+  }, [loadHistory]);
 
-  useEffect(() => {
-    if (loading || error || !alertsEnabled || permission !== 'granted' || !data || data.unavailable || data.alertLevel < 2) return;
-    const alertId = `${requestBody.lat.toFixed(2)}:${requestBody.lon.toFixed(2)}:${data.radarTime}:${data.alertLevel}`;
-    if (notifiedRef.current === alertId) return;
-    notifiedRef.current = alertId;
-    localStorage.setItem(LAST_ALERT_KEY, alertId);
-    sendLocalNotification(data.alertLevel >= 3 ? 'ฝนกำลังเข้าใกล้คุณ' : 'มีฝนใกล้พื้นที่ของคุณ', {
-      body: `${data.cardTitle} — ${data.cardDesc}`,
-      tag: 'rain-nowcast-location',
-      data: { url: '/' },
-    });
-  }, [alertsEnabled, data, error, loading, permission, requestBody.lat, requestBody.lon, sendLocalNotification]);
+  const frames = Array.isArray(data?.frames) ? data.frames : [];
+  const frame = frames[frameIndex];
+  const stale = data?.stale || !data?.radarTime || now - Date.parse(data.radarTime) > 30 * 60 * 1000;
+  const unavailable = data?.unavailable || !frames.length;
+  const selectFrame = index => { setFrameIndex(index); setTileError(false); };
 
-  const enableAlerts = async () => {
-    const result = await requestPermission();
-    const enabled = result === 'granted';
-    setAlertsEnabled(enabled);
-    if (enabled) localStorage.setItem(ALERTS_KEY, '1');
-  };
-
-  const disableAlerts = () => {
-    setAlertsEnabled(false);
-    localStorage.removeItem(ALERTS_KEY);
-  };
-
-  const refresh = () => {
-    setRefreshToken(Date.now());
-  };
-
-  const nowcast = data?.nowcast || {};
-  const tone = alertTone(data?.alertLevel || 0, !data || data.unavailable || error);
-  const TrendIcon = trendIcon(nowcast.trend);
-  const range = Array.isArray(nowcast.rainRangeMm) ? nowcast.rainRangeMm : [0, 0];
-
-  return (
-    <section aria-labelledby="rain-nowcast-title" className={`nowcast-card nowcast-card--${tone}`}>
-      <div className="nowcast-card__top">
-        <div className="nowcast-card__heading">
-          <span className="nowcast-card__radar"><RadioTower aria-hidden="true" size={22} /></span>
-          <div><span className="section-label">เรดาร์ฝนใกล้ตัว · อัปเดตทุก 10 นาที</span><h2 id="rain-nowcast-title">{loading && !data ? 'กำลังสแกนฝนรอบตัวคุณ' : data?.cardTitle || 'วิเคราะห์ฝนระยะสั้น'}</h2><p>{data?.currentLocName || locationLabel}</p></div>
-        </div>
-        <div className="nowcast-card__actions">
-          <button className="button button--secondary button--compact" disabled={loading} onClick={refresh} type="button"><RefreshCw aria-hidden="true" className={loading ? 'is-spinning' : ''} size={16} /> อัปเดต</button>
-          {isSupported && (alertsEnabled && permission === 'granted'
-            ? <button className="button button--quiet button--compact" onClick={disableAlerts} type="button"><BellRing aria-hidden="true" size={16} /> แจ้งเตือนแล้ว</button>
-            : <button className="button button--primary button--compact" onClick={enableAlerts} type="button"><BellRing aria-hidden="true" size={16} /> เปิดแจ้งเตือนฝน</button>)}
-        </div>
+  return <section aria-labelledby="rain-nowcast-title" className={`nowcast-card nowcast-card--${error || stale || unavailable ? 'fallback' : 'watch'}`}>
+    <div className="nowcast-card__top">
+      <div className="nowcast-card__heading"><span className="nowcast-card__radar"><RadioTower aria-hidden="true" size={22} /></span><div><h2 id="rain-nowcast-title">ภาพเรดาร์ย้อนหลัง</h2><p>{locationLabel} · อัปเดตทุก 10 นาที</p></div></div>
+      <button className="button button--secondary button--compact" disabled={loading} onClick={() => loadHistory()} type="button"><RefreshCw aria-hidden="true" className={loading ? 'is-spinning' : ''} size={16} /> อัปเดต</button>
+    </div>
+    {error && <p className="nowcast-card__error" role="status">{error}</p>}
+    {loading && !data ? <p role="status">กำลังโหลดภาพเรดาร์และขอบเขตครอบคลุม</p> : unavailable ? <p className="nowcast-card__error" role="status">ยังไม่มีภาพเรดาร์ที่ตรวจสอบเวลาได้ จึงสรุปไม่ได้ว่าจุดนี้มีฝนหรือไม่มีฝน</p> : <>
+      <p role="status">{stale ? 'ภาพล่าสุดเกิน 30 นาที โปรดตรวจเวลา' : 'ภาพเรดาร์ย้อนหลังพร้อมเวลาเฟรม'} · {coverageLabels[data?.coverage] || coverageLabels.unknown}</p>
+      <div className="radar-history-image" role="region" aria-label={`แผนที่เรดาร์ย้อนหลัง ${locationLabel}`}>
+        <MapContainer key={`${requestBody.lat}:${requestBody.lon}`} center={[requestBody.lat, requestBody.lon]} zoom={7} minZoom={4} maxZoom={7} scrollWheelZoom={false} style={{ height: '100%', minHeight: 300, width: '100%' }}>
+          <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          {frame && <TileLayer key={frame.timestamp} attribution='<a href="https://www.rainviewer.com/">Radar by RainViewer</a>' url={frame.tileUrl} maxNativeZoom={7} opacity={0.8} eventHandlers={{ tileerror: () => setTileError(true) }} />}
+          <CircleMarker center={[requestBody.lat, requestBody.lon]} radius={6} pathOptions={{ color: '#17344f', fillColor: '#ffffff', fillOpacity: 1, weight: 3 }}><Tooltip permanent direction="top">{locationLabel}</Tooltip></CircleMarker>
+        </MapContainer>
       </div>
-
-      {error || data?.unavailable ? <div className="nowcast-card__error" role="status">{error || 'ภาพเรดาร์ยังไม่พร้อม จึงยังสรุปสถานการณ์ฝนไม่ได้'} · ตรวจพยากรณ์รายชั่วโมงและเวลาบนภาพประกอบ</div> : loading && !data ? <p role="status">กำลังอ่านภาพเรดาร์ ยังสรุปสถานการณ์ฝนไม่ได้</p> : (
-        <>
-          <div className="nowcast-card__message"><RadioTower aria-hidden="true" size={28} /><div><strong>{data?.cardTag || 'กำลังวิเคราะห์'}</strong><p>{data?.cardDesc || 'กำลังเปรียบเทียบภาพเรดาร์ย้อนหลัง'}</p></div></div>
-          <div className="nowcast-metrics">
-            <article><span><CloudRain size={17} /> ฝน 60 นาที</span><strong>{nowcast.rainNext60MinMm > 0 ? `≈ ${nowcast.rainNext60MinMm} มม.` : nowcast.probability60 >= 30 ? `${nowcast.probability60}%` : 'ยังไม่พบ'}</strong><small>{nowcast.rainNext60MinMm > 0 ? `ช่วง ${range[0]}–${range[1]} มม.` : 'การประเมินจากภาพเรดาร์'}</small></article>
-            <article><span><CloudRain size={17} /> ความแรง</span><strong>{data?.diagnostics?.centerIntensity || data?.diagnostics?.intensity || '–'}</strong><small>{nowcast.rainRateMmh > 0 ? `อัตรา ≈ ${nowcast.rainRateMmh} มม./ชม.` : `ใกล้สุด ${data?.diagnostics?.nearestKm ?? '–'} กม.`}</small></article>
-            <article><span><Navigation size={17} /> การเคลื่อนที่</span><strong>{nowcast.direction ? `ไปทาง${nowcast.direction}` : 'ทิศทางยังไม่ชัด'}</strong><small>{nowcast.speedKmh ? `ประมาณ ${nowcast.speedKmh} กม./ชม.` : 'รอเฟรมเรดาร์เพิ่ม'}</small></article>
-            <article><span><TrendIcon size={17} /> แนวโน้ม</span><strong>{nowcast.trendLabel || 'กำลังประเมิน'}</strong><small>{nowcast.etaMinutes ? `คาดถึงราว ${nowcast.etaMinutes} นาที` : `ความมั่นใจ ${data?.confidence ?? '–'}%`}</small></article>
-          </div>
-        </>
-      )}
-
-      <footer className="nowcast-card__footer">
-        <span>เรดาร์เวลา {data?.radarTime || '–'} · ใช้การเคลื่อนที่จากภาพย้อนหลัง ไม่ใช่ประกาศทางการ</span>
-        <div><button className="text-button" onClick={onUseLocation} type="button"><LocateFixed size={15} /> ใช้ตำแหน่งจริงของฉัน</button><a href="https://www.rainviewer.com/" rel="noreferrer" target="_blank">Radar by RainViewer</a></div>
-      </footer>
-    </section>
-  );
+      {tileError && <p className="nowcast-card__error" role="status">โหลดภาพบางส่วนไม่ได้ พื้นที่ว่างบนแผนที่ไม่ได้ยืนยันว่าไม่มีฝน</p>}
+      <div className="radar-history-controls">
+        <label htmlFor="radar-history-time">เวลาเฟรมภาพ {thaiTime(frame?.time, { day: 'numeric', month: 'short' })} น.</label>
+        <input id="radar-history-time" type="range" min={0} max={Math.max(0, frames.length - 1)} step={1} value={frameIndex} disabled={frames.length < 2} aria-valuetext={`เวลาเฟรมภาพ ${thaiTime(frame?.time)}`} onChange={event => selectFrame(Number(event.target.value))} />
+        <div><button className="button button--quiet button--compact" type="button" disabled={frameIndex <= 0} onClick={() => selectFrame(frameIndex - 1)}><ChevronLeft aria-hidden="true" size={16} /> ก่อนหน้า</button><span>{frameIndex + 1} / {frames.length} ภาพ</span><button className="button button--quiet button--compact" type="button" disabled={frameIndex >= frames.length - 1} onClick={() => selectFrame(frameIndex + 1)}>ถัดไป <ChevronRight aria-hidden="true" size={16} /></button></div>
+      </div>
+      <p className="wx-footnote">วงกลมคือพิกัดที่เลือก สีภาพเป็นสัญญาณเรดาร์จากผู้ให้บริการ เวลาเฟรมเป็นเวลาประกอบภาพซึ่งอาจรวมสถานีต่างเวลา พื้นที่ว่างหรือข้อมูลไม่ครบไม่ยืนยันว่าไม่มีฝน</p>
+    </>}
+    <footer className="nowcast-card__footer"><span>ภาพย้อนหลัง · ใช้ประกอบพยากรณ์ฝนรายชั่วโมง</span><div>{onUseLocation && <button className="text-button" onClick={onUseLocation} type="button"><LocateFixed size={15} /> ใช้ตำแหน่งจริงของฉัน</button>}<a href="https://www.rainviewer.com/" rel="noreferrer" target="_blank">Radar by RainViewer</a><a href={`https://www.windy.com/?radar,${requestBody.lat},${requestBody.lon},7`} rel="noreferrer" target="_blank">ดูเรดาร์บน Windy</a></div></footer>
+  </section>;
 }

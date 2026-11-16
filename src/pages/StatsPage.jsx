@@ -1,12 +1,15 @@
-import { useContext, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { BarChart3, CloudRain, Gauge, LoaderCircle, ThermometerSun, TrendingDown, TrendingUp } from 'lucide-react';
-import { WeatherContext } from '../context/WeatherContext';
-import { finiteOrNull } from '../utils/weatherData';
+import { provinces77 } from '../provinces77';
+import { mountainPlaces } from '../data/mountainPlaces';
+import RiskValue, { RiskLegend } from '../components/RiskValue';
+import { finiteOrNull, weatherDate, BANGKOK } from '../utils/weatherData';
 
 const LOCATION_KEY = 'air4thai.selectedProvince';
 const metrics = {
   rain: { label: 'ปริมาณฝน', unit: 'มม.', icon: CloudRain, color: '#2788f5', aggregate: 'sum' },
+  tempMin: { label: 'อุณหภูมิต่ำสุด', unit: '°C', icon: ThermometerSun, color: '#155fa0', aggregate: 'average' },
   tempMax: { label: 'อุณหภูมิสูงสุด', unit: '°C', icon: ThermometerSun, color: '#ff8b3d', aggregate: 'average' },
   heatMax: { label: 'อุณหภูมิที่รู้สึก', unit: '°C', icon: ThermometerSun, color: '#f04f70', aggregate: 'average' },
   pm25: { label: 'ฝุ่น PM2.5', unit: 'µg/m³', icon: Gauge, color: '#7357dd', aggregate: 'average' },
@@ -23,18 +26,17 @@ function summarize(rows, key, aggregate) {
 }
 
 function formatShortDate(value) {
-  return new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short' }).format(new Date(`${value}T12:00:00`));
+  return new Intl.DateTimeFormat('th-TH', { timeZone: BANGKOK, day: 'numeric', month: 'short' }).format(weatherDate(value));
 }
 
 export default function StatsPage() {
-  const { stations } = useContext(WeatherContext);
   const [province, setProvince] = useState(() => cleanName(localStorage.getItem(LOCATION_KEY) || 'กรุงเทพมหานคร'));
   const [metric, setMetric] = useState('rain');
   const [period, setPeriod] = useState(30);
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const sortedStations = useMemo(() => [...(stations || [])].sort((a, b) => a.areaTH.localeCompare(b.areaTH, 'th')), [stations]);
+  const sortedStations = useMemo(() => [...provinces77.map(p => ({ stationID: p.n, areaTH: p.n, lat: p.lat, long: p.lon })), ...mountainPlaces.map(p => ({ stationID: p.id, areaTH: p.name, lat: p.lat, long: p.lon, elevation: p.elevation }))].sort((a, b) => a.areaTH.localeCompare(b.areaTH, 'th')), []);
   const selectedStation = useMemo(() => sortedStations.find((item) => cleanName(item.areaTH) === cleanName(province)) || sortedStations[0], [province, sortedStations]);
 
   useEffect(() => {
@@ -43,7 +45,7 @@ export default function StatsPage() {
     setLoading(true);
     setPayload(null);
     setError('');
-    fetch(`/api/statistics?lat=${selectedStation.lat}&lon=${selectedStation.long}`, { signal: controller.signal })
+    fetch(`/api/statistics?lat=${selectedStation.lat}&lon=${selectedStation.long}${selectedStation.elevation == null ? '' : '&elevation=' + selectedStation.elevation}`, { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`ระบบสถิติตอบกลับ ${response.status}`);
         if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('บริการสถิติยังไม่พร้อมในโหมดทดสอบนี้');
@@ -95,18 +97,19 @@ export default function StatsPage() {
         </header>
 
         <div className="stats-controls">
-          <div className="metric-tabs" role="group" aria-label="เลือกข้อมูลสถิติ">{Object.entries(metrics).map(([key, item]) => { const Icon = item.icon; return <button className={metric === key ? 'is-active' : ''} data-metric={key === 'tempMax' || key === 'heatMax' ? 'temp' : key === 'pm25' ? 'wind' : 'rain'} key={key} onClick={() => setMetric(key)} type="button"><Icon aria-hidden="true" size={16} /> {item.label}</button>; })}</div>
+          <div className="metric-tabs" role="group" aria-label="เลือกข้อมูลสถิติ">{Object.entries(metrics).map(([key, item]) => { const Icon = item.icon; return <button className={metric === key ? 'is-active' : ''} data-metric={key.startsWith('temp') || key === 'heatMax' ? 'temp' : key === 'pm25' ? 'wind' : 'rain'} key={key} onClick={() => setMetric(key)} type="button"><Icon aria-hidden="true" size={16} /> {item.label}</button>; })}</div>
           <div className="period-tabs" role="group" aria-label="เลือกช่วงเวลา">{periods.map((item) => <button className={period === item.value ? 'is-active' : ''} key={item.value} onClick={() => setPeriod(item.value)} type="button">{item.label}</button>)}</div>
         </div>
 
+        {!loading && analysis.chart.length > 0 && <p className="stats-source">ช่วงข้อมูล {formatShortDate(analysis.chart[0].date)} – {formatShortDate(analysis.chart.at(-1).date)} · ข้อมูลย้อนหลังอาจล่าช้าจากวันปัจจุบัน · ค่าสรุปหลายวันใช้สีข้อมูล อ่านระดับสีจากค่ารายวัน</p>}
         {loading ? <div className="stats-loading"><LoaderCircle className="is-spinning" size={28} /><strong>กำลังวิเคราะห์ข้อมูลย้อนหลังของ{cleanName(province)}</strong></div>
           : error ? <div className="empty-state"><BarChart3 size={28} /><h2>ยังโหลดสถิติไม่ได้</h2><p>{error}</p></div>
             : (
               <>
                 <section className="stats-kpis" aria-label="สรุปสถิติ">
-                  <article className="stat-kpi stat-kpi--primary"><span>{config.label}ช่วงนี้</span><strong>{analysis.current ?? '–'} <small>{config.unit}</small></strong><p>{analysis.days} วันที่มีข้อมูล</p></article>
+                  <article className="stat-kpi stat-kpi--primary"><span>{metric === 'rain' ? 'รวมฝนเฉพาะวันที่มีข้อมูล' : `เฉลี่ย${config.label}รายวัน`}</span><strong>{analysis.current ?? '–'} <small>{config.unit}</small></strong><p>{analysis.days} วันที่มีข้อมูล / {period} วัน</p></article>
                   <article className="stat-kpi"><span>เทียบช่วงก่อนหน้า</span><strong className={analysis.difference === null ? '' : changeUp ? 'is-up' : 'is-down'}>{analysis.difference === null ? '–' : <><ChangeIcon size={20} /> {Math.abs(analysis.difference)} <small>{config.unit}</small></>}</strong><p>{analysis.previous === null ? 'ข้อมูลช่วงก่อนหน้าไม่ครบ' : `ช่วงก่อนหน้า ${analysis.previous} ${config.unit}`}</p></article>
-                  <article className="stat-kpi"><span>ค่าเฉลี่ยรายวัน</span><strong>{analysis.average ?? '–'} <small>{config.unit}</small></strong><p>สูงสุด {analysis.max ?? '–'} · ต่ำสุด {analysis.min ?? '–'}</p></article>
+                  <article className="stat-kpi"><span>ค่าเฉลี่ยรายวัน</span><strong>{analysis.average ?? '–'} <small>{config.unit}</small></strong><p>สูงสุด <RiskValue metric={metric.startsWith('temp') ? 'temperature' : metric === 'heatMax' ? 'apparent' : metric} value={analysis.max} hours={['rain', 'pm25'].includes(metric) ? 24 : null} /> · ต่ำสุด <RiskValue metric={metric.startsWith('temp') ? 'temperature' : metric === 'heatMax' ? 'apparent' : metric} value={analysis.min} hours={['rain', 'pm25'].includes(metric) ? 24 : null} /></p></article>
                 </section>
 
                 <section className="stats-chart-card">
@@ -124,8 +127,10 @@ export default function StatsPage() {
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
-                  <p className="stats-source">ข้อมูลอากาศย้อนหลัง ERA5 และข้อมูล PM2.5 จาก CAMS ผ่าน Open-Meteo · ฝุ่นย้อนหลังสูงสุด 92 วัน · อากาศย้อนหลังสูงสุด 1 ปี</p>
+                  <p className="stats-source">ข้อมูลอากาศย้อนหลังจากแบบจำลอง Open-Meteo Best Match และ PM2.5 จาก CAMS · ไม่ใช่ผลตรวจวัดสถานี · ค่าเฉลี่ยฝุ่นรายวันใช้เฉพาะวันที่ครบ 24 ชั่วโมง · ฝุ่นย้อนหลังสูงสุด 92 วัน อากาศย้อนหลัง 1 ปี</p>
                 </section>
+                <RiskLegend />
+                <details className="stats-daily-details"><summary>ดูค่ารายวันและความครบของข้อมูล ({analysis.chart.length} วัน)</summary><div className="stats-table-scroll" tabIndex={0} role="region" aria-label="ข้อมูลสถิติรายวัน เลื่อนเพื่อดูทุกคอลัมน์"><table className="stats-data-table"><caption>พิกัด {selectedStation?.lat}, {selectedStation?.long} · วันตามเวลาไทย · ฝนและฝุ่นเฉลี่ยใช้ช่วง 24 ชั่วโมง</caption><thead><tr><th scope="col">วันที่</th><th scope="col">ต่ำสุด °C</th><th scope="col">สูงสุด °C</th><th scope="col">ฝน มม.</th><th scope="col">PM2.5 µg/m³</th><th scope="col">ชั่วโมงฝุ่น</th></tr></thead><tbody>{[...analysis.chart].reverse().map(row => <tr key={row.date}><th scope="row">{formatShortDate(row.date)}</th><td><RiskValue metric="temperature" value={row.tempMin} /></td><td><RiskValue metric="temperature" value={row.tempMax} /></td><td><RiskValue metric="rain" value={row.rain} hours={24} /></td><td><RiskValue metric="pm25" value={row.pm25} hours={24} /></td><td>{row.pm25ValidHours ?? '—'}/24</td></tr>)}</tbody></table></div></details>
               </>
             )}
       </div>

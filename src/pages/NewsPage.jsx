@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { getEnsoSummary, NOAA_ENSO_URL, IRI_ENSO_URL } from '../utils/ensoData';
+import { NEWS_REFRESH_MS, normalizeNewsDisplayItem, newsIsRelevant, readNewsCache, summarizeNewsFeed } from '../server/newsIntegrity';
 import {
   AlertTriangle,
   BellRing,
@@ -11,7 +13,7 @@ import {
   Waves,
 } from 'lucide-react';
 
-const CACHE_KEY = 'air4thai-news-v2-cache';
+const CACHE_KEY = 'air4thai-news-v3-cache';
 
 const categories = [
   { id: 'all', label: 'ทั้งหมด', icon: BellRing, topics: [] },
@@ -28,41 +30,10 @@ function asArray(value) {
 function readCache() {
   try {
     const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
-    return cached?.payload || null;
+    return readNewsCache(cached);
   } catch {
     return null;
   }
-}
-
-function normalizeItem(item, index) {
-  const sources = asArray(item?.sources);
-  const source = item?.source || sources[0] || 'ไม่ระบุแหล่ง';
-  const topicHint = `${item?.topic || ''} ${item?.eventType || ''} ${item?.category || ''} ${item?.title || ''} ${item?.summary || item?.description || ''}`.toLowerCase();
-  const topic = /earthquake|quake|แผ่นดินไหว/.test(topicHint) ? 'earthquake'
-    : /wildfire|fire|ไฟป่า/.test(topicHint) ? 'fire'
-      : /storm|cyclone|hurricane|typhoon|พายุ/.test(topicHint) ? 'storm'
-        : /flood|น้ำท่วม/.test(topicHint) ? 'flood'
-          : /volcano|ภูเขาไฟ/.test(topicHint) ? 'volcano'
-            : /drought|ภัยแล้ง/.test(topicHint) ? 'drought'
-              : String(item?.topic || item?.eventType || item?.category || 'other').toLowerCase();
-  const severity = item?.severity === 'high' ? 'high' : item?.severity === 'medium' ? 'medium' : 'low';
-  const publishedAt = item?.publishedAt || item?.updatedAt || item?.at || null;
-  const areas = asArray(item?.areas);
-  const rawTitle = item?.title || 'ประกาศเหตุการณ์ธรรมชาติ';
-  const rawSummary = item?.summary || item?.description || 'เปิดต้นทางเพื่อดูรายละเอียด';
-  const isGenericDdpmNotice = /^\d{3,5}\s*:\s*กรมป้องกันและบรรเทาสาธารณภัย/.test(rawTitle);
-  return {
-    id: item?.id || `${source}-${publishedAt || index}-${item?.title || index}`,
-    title: isGenericDdpmNotice ? 'ปภ. มีประกาศล่าสุดสำหรับประเทศไทย' : rawTitle,
-    summary: isGenericDdpmNotice ? 'โปรดตรวจสอบรายละเอียดและคำแนะนำล่าสุดจากกรมป้องกันและบรรเทาสาธารณภัย' : rawSummary,
-    topic,
-    severity,
-    publishedAt,
-    source,
-    area: item?.primaryArea || areas[0] || item?.area || 'ประเทศไทย',
-    url: item?.url || item?.link || asArray(item?.items)[0]?.url || '',
-    scope: item?.scope || 'thailand',
-  };
 }
 
 function collectItems(feed) {
@@ -70,22 +41,19 @@ function collectItems(feed) {
   const thailand = feed.thailand || {};
   const global = feed.global || {};
   const candidates = [
-    ...asArray(thailand.warnings),
-    ...asArray(thailand.storms),
-    ...asArray(thailand.earthquakes),
-    ...asArray(thailand.disasters),
-    ...asArray(thailand.ddpm),
+    ...asArray(thailand.warnings).map(item => ({ ...item, scope: 'thailand' })),
+    ...asArray(thailand.storms).map(item => ({ ...item, scope: 'thailand' })),
+    ...asArray(thailand.earthquakes).map(item => ({ ...item, scope: 'thailand' })),
+    ...asArray(thailand.disasters).map(item => ({ ...item, scope: 'thailand' })),
+    ...asArray(thailand.ddpm).map(item => ({ ...item, scope: 'thailand' })),
     ...asArray(global.alerts).map((item) => ({ ...item, scope: 'global' })),
     ...asArray(global.earthquakesRegional).map((item) => ({ ...item, scope: 'global' })),
     ...asArray(feed.events).map((item) => ({ ...item, scope: item.scope || 'mixed' })),
     ...asArray(feed.topStories).map((item) => ({ ...item, scope: item.scope || 'mixed' })),
   ];
   const seen = new Set();
-  return candidates.map(normalizeItem).filter((item) => {
-    const relevanceText = `${item.title} ${item.summary} ${item.area} ${item.source}`;
-    const isRelevant = item.scope === 'thailand'
-      || /ประเทศไทย|ไทย|Thailand|TMD|ปภ\.|กรมป้องกัน|Myanmar|Laos|Cambodia|Vietnam|Malaysia|ภูมิภาคเอเชียตะวันออกเฉียงใต้|อ่าวไทย|อันดามัน/i.test(relevanceText);
-    if (!isRelevant) return false;
+  return candidates.map(normalizeNewsDisplayItem).filter((item) => {
+    if (!newsIsRelevant(item)) return false;
     const key = `${item.title}|${item.source}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -108,44 +76,6 @@ function SeverityBadge({ severity }) {
   return <span className={`severity severity--${severity}`}>{label}</span>;
 }
 
-function getEnsoSummary(data) {
-  if (!data || data.fallback) {
-    return {
-      title: 'ยังไม่มีข้อมูลล่าสุด',
-      detail: 'กำลังรอผลแนวโน้มฝนและความร้อนระยะยาว',
-      tone: 'pending',
-    };
-  }
-
-  const signal = [data.alert, data.status, ...asArray(data.forecast).map((item) => item?.value)].filter(Boolean).join(' ').toLowerCase();
-  if (/la niña|la nina|ลานีญา|ลานีญ่า/.test(signal)) {
-    return {
-      title: 'แนวโน้มลานีญา',
-      detail: 'ฝนอาจมากขึ้นและควรระวังฝนหนักในบางช่วง',
-      tone: 'rain',
-    };
-  }
-  if (/el niño|el nino|เอลนีโญ|เอลนีโญ่/.test(signal)) {
-    return {
-      title: 'แนวโน้มเอลนีโญ',
-      detail: 'อากาศอาจร้อนขึ้นและฝนอาจน้อยกว่าปกติในบางช่วง',
-      tone: 'heat',
-    };
-  }
-  if (/neutral|เป็นกลาง/.test(signal)) {
-    return {
-      title: 'ภาวะเป็นกลาง',
-      detail: 'ยังไม่พบสัญญาณเอลนีโญหรือลานีญาที่เด่นชัด',
-      tone: 'neutral',
-    };
-  }
-  return {
-    title: 'กำลังติดตามแนวโน้ม',
-    detail: 'ยังไม่มีสัญญาณที่ชัดเจนต่อฝนและความร้อนระยะยาว',
-    tone: 'pending',
-  };
-}
-
 export default function NewsPage() {
   const [feed, setFeed] = useState(readCache);
   const [loading, setLoading] = useState(!feed);
@@ -155,38 +85,50 @@ export default function NewsPage() {
   const [query, setQuery] = useState('');
   const [enso, setEnso] = useState(null);
   const [ensoLoading, setEnsoLoading] = useState(true);
+  const [now, setNow] = useState(Date.now);
 
   useEffect(() => {
-    const controller = new AbortController();
     let active = true;
-
-    async function loadNews() {
+    let controller;
+    let requestId = 0;
+    async function loadNews(manual = false) {
+      const id = ++requestId;
+      controller?.abort();
+      controller = new AbortController();
+      const requestController = controller;
+      const timeout = setTimeout(() => requestController.abort(), 35000);
       setLoading(true);
       setError('');
       try {
-        const response = await fetch(refreshToken ? `/api/news?fresh=${refreshToken}` : '/api/news', {
-          cache: refreshToken ? 'no-store' : 'default',
-          headers: { Accept: 'application/json', ...(refreshToken ? { 'X-User-Refresh': '1' } : {}) },
-          signal: controller.signal,
+        const response = await fetch(manual ? '/api/news?fresh=' + Date.now() : '/api/news', {
+          cache: 'no-store',
+          headers: { Accept: 'application/json', ...(manual ? { 'X-User-Refresh': '1' } : {}) },
+          signal: requestController.signal,
         });
-        if (!response.ok) throw new Error(`ระบบประกาศตอบกลับ ${response.status}`);
+        if (!response.ok) throw new Error('ระบบประกาศตอบกลับ ' + response.status);
         const payload = await response.json();
-        if (!active) return;
+        if (!active || id !== requestId) return;
+        if (payload.schemaVersion !== 3) throw new Error('ข้อมูลประกาศยังไม่พร้อม');
         setFeed(payload);
-        localStorage.setItem(CACHE_KEY, JSON.stringify({ cachedAt: Date.now(), payload }));
-      } catch (loadError) {
-        if (loadError.name !== 'AbortError' && active) {
-          setError(readCache() ? 'โหลดรอบล่าสุดไม่สำเร็จ กำลังแสดงข้อมูลที่บันทึกไว้' : 'ยังโหลดประกาศไม่ได้ กรุณาลองอีกครั้ง');
-        }
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify({ cachedAt: Date.now(), payload })); } catch { /* Optional offline cache. */ }
+      } catch {
+        if (active && id === requestId) setError('ยังยืนยันประกาศรอบล่าสุดไม่ได้ โปรดตรวจเวลาของข้อมูลและเปิดต้นทาง');
       } finally {
-        if (active) setLoading(false);
+        clearTimeout(timeout);
+        if (active && id === requestId) { setLoading(false); setNow(Date.now()); }
       }
     }
-
-    loadNews();
+    loadNews(Boolean(refreshToken));
+    const refreshVisible = () => { if (document.visibilityState === 'visible') loadNews(); };
+    const timer = setInterval(refreshVisible, NEWS_REFRESH_MS);
+    const clock = setInterval(() => setNow(Date.now()), 60000);
+    document.addEventListener('visibilitychange', refreshVisible);
     return () => {
       active = false;
-      controller.abort();
+      controller?.abort();
+      clearInterval(timer);
+      clearInterval(clock);
+      document.removeEventListener('visibilitychange', refreshVisible);
     };
   }, [refreshToken]);
 
@@ -229,7 +171,8 @@ export default function NewsPage() {
   const highCount = items.filter((item) => item.severity === 'high').length;
   const priority = filtered[0];
   const remaining = filtered.slice(1);
-  const ensoSummary = getEnsoSummary(enso);
+  const ensoSummary = getEnsoSummary(enso, now);
+  const feedStatus = summarizeNewsFeed(feed, now);
   const generatedAt = feed?.generatedAt || feed?.fetchedAt || feed?.updatedAt;
 
   return (
@@ -247,9 +190,9 @@ export default function NewsPage() {
         </header>
 
         <div className="news-status" aria-live="polite">
-          <span className={`status-dot ${error ? 'is-fallback' : 'is-live'}`} />
-          <span>{error || (feed ? `อัปเดต ${formatTime(generatedAt)}` : 'กำลังโหลดประกาศ')}</span>
-          <span className="news-status__counts">สำคัญ {highCount} · ทั้งหมด {items.length}</span>
+          <span className={`status-dot ${error || feedStatus.stale || feedStatus.incomplete ? 'is-fallback' : 'is-live'}`} />
+          <span>{error || (feed ? `${feedStatus.stale ? 'ข้อมูลเดิม · ' : ''}${feedStatus.incomplete ? 'ข้อมูลบางแหล่งยังไม่ครบ · ' : ''}ดึงข้อมูล ${formatTime(generatedAt)}` : 'กำลังโหลดประกาศ')}</span>
+          <span className="news-status__counts">สำคัญ {highCount} · ทั้งหมด {items.length} · รีเฟรชทุก 10 นาทีเมื่อเปิดหน้านี้</span>
         </div>
 
         <section className={`enso-card enso-card--${ensoSummary.tone}`} aria-label="แนวโน้มเอลนีโญและลานีญา">
@@ -258,6 +201,12 @@ export default function NewsPage() {
             <span className="section-label">แนวโน้มฝนและความร้อนระยะยาว</span>
             <h2>{ensoLoading ? 'กำลังอัปเดตแนวโน้ม' : ensoSummary.title}</h2>
             <p>{ensoLoading ? 'รอสักครู่' : ensoSummary.detail}</p>
+            {!ensoLoading && <>
+              <p><small>วันประกาศ: {enso?.issuedAt ? new Intl.DateTimeFormat('th-TH', { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(enso.issuedAt)) : 'ยังไม่ยืนยัน'} · ตรวจล่าสุด: {formatTime(enso?.fetchedAt)}</small></p>
+              {enso?.alert && <p><small>สถานะประกาศต้นทาง: {enso.alert}</small></p>}
+              {enso?.outlook?.text && <details><summary>อ่านแนวโน้มตามช่วงเวลาในประกาศ NOAA</summary><p lang="en">{enso.outlook.text}</p></details>}
+              <p><a href={NOAA_ENSO_URL} target="_blank" rel="noreferrer">NOAA CPC</a> · <a href={IRI_ENSO_URL} target="_blank" rel="noreferrer">IRI ENSO</a></p>
+            </>}
           </div>
         </section>
 
@@ -289,7 +238,7 @@ export default function NewsPage() {
               <SeverityBadge severity={priority.severity} />
               <span>{priority.area}</span>
               <span>{priority.source}</span>
-              <span>{formatTime(priority.publishedAt)}</span>
+              <span>{priority.publishedAt ? `ประกาศ ${formatTime(priority.publishedAt)}` : 'ไม่ทราบวันประกาศ'}</span>
             </div>
             {priority.url && (
               <a className="button button--primary button--compact" href={priority.url} rel="noreferrer" target="_blank">
@@ -300,8 +249,8 @@ export default function NewsPage() {
         ) : !loading && (
           <section className="empty-state">
             <BellRing aria-hidden="true" size={25} />
-            <h2>ยังไม่มีประกาศที่ตรงกับตัวกรอง</h2>
-            <p>ลองเลือก “ทั้งหมด” หรือล้างคำค้นหา</p>
+            <h2>{error || feedStatus.incomplete ? 'ยังยืนยันประกาศที่ตรงกับตัวกรองไม่ได้' : 'ยังไม่มีประกาศที่ตรงกับตัวกรอง'}</h2>
+            <p>ลองเลือก “ทั้งหมด” หรือตรวจจากต้นทาง · การไม่มีรายการไม่ได้ยืนยันว่าพื้นที่ปลอดภัย</p>
           </section>
         )}
 
@@ -329,7 +278,7 @@ export default function NewsPage() {
                       <div className="event-row__meta">
                         <span>{item.area}</span>
                         <span>{item.source}</span>
-                        <span>{formatTime(item.publishedAt)}</span>
+                        <span>{item.publishedAt ? `ประกาศ ${formatTime(item.publishedAt)}` : 'ไม่ทราบวันประกาศ'}</span>
                       </div>
                     </div>
                     {item.url && (
@@ -344,6 +293,16 @@ export default function NewsPage() {
           </section>
         )}
 
+        <aside className="source-note">
+          <ShieldAlert aria-hidden="true" size={18} />
+          <div>
+            <details>
+              <summary>สถานะแหล่งข้อมูล · ยืนยันรายการได้ {feedStatus.available} / {feedStatus.total} แหล่ง</summary>
+              <ul>{feedStatus.sources.map(source => <li key={source.label}>{source.label}: {source.status === 'ok' ? 'มีรายการจากต้นทาง' : source.status === 'partial' ? 'อ่านได้บางส่วน' : source.status === 'empty' ? 'ไม่มีรายการที่ยืนยันวันและความใหม่ได้' : 'เชื่อมต่อไม่ได้'} ({source.count || 0} รายการ)</li>)}</ul>
+            </details>
+            <p>ตรวจประกาศเพิ่มเติม: <a href="https://www.tmd.go.th/warning-and-events/warning-storm" target="_blank" rel="noreferrer">กรมอุตุนิยมวิทยา</a> · <a href="https://www.disaster.go.th/" target="_blank" rel="noreferrer">ปภ.</a></p>
+          </div>
+        </aside>
         <aside className="source-note">
           <ShieldAlert aria-hidden="true" size={18} />
           <p><strong>กรณีฉุกเฉิน:</strong> ให้ยึดคำเตือนและคำสั่งจากหน่วยงานในพื้นที่</p>

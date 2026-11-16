@@ -1,4 +1,4 @@
-import { finiteOrNull } from '../utils/weatherData.js';
+import { aggregateHourlyDays, bangkokDateKey, finiteOrNull, isStaleTime, rollingPm25 } from '../utils/weatherData.js';
 
 // Reserve a slot for every requested location, even when a whole batch fails.
 export function providerSlots(result, count) {
@@ -15,12 +15,46 @@ export function roundedOrNull(value, digits = 0) {
 }
 
 export function dailyAirMax(dates, hourly = {}) {
-  const maxima = new Map();
-  (hourly.time || []).forEach((time, i) => {
-    const value = finiteOrNull(hourly.pm2_5?.[i]);
-    if (value === null) return;
-    const date = time.slice(0, 10);
-    maxima.set(date, Math.max(maxima.get(date) ?? -Infinity, value));
-  });
-  return dates.map(date => roundedOrNull(maxima.get(date)));
+  const days = aggregateHourlyDays(hourly);
+  return dates.map(date => roundedOrNull(days.get(date)?.max));
+}
+
+export function dailyForecast(weather = {}, air = {}) {
+  const daily = weather.daily || {}, dates = daily.time || [];
+  const field = (name, digits = 0) => dates.map((_, i) => roundedOrNull(daily[name]?.[i], digits));
+  const airDays = aggregateHourlyDays(air.hourly);
+  return {
+    dates, temp: field('temperature_2m_max'), tempMin: field('temperature_2m_min'), tempMax: field('temperature_2m_max'),
+    heat: field('apparent_temperature_max'), rain: field('precipitation_probability_max'), rainMm: field('precipitation_sum', 1),
+    wind: field('wind_speed_10m_max'), windGust: field('wind_gusts_10m_max'), uv: field('uv_index_max'),
+    pm25: dailyAirMax(dates, air.hourly), pm25ValidHours: dates.map(date => airDays.get(date)?.validHours ?? 0),
+    pm25Coverage: dates.map(date => airDays.get(date)?.coverage ?? 0),
+    weatherSource: 'open-meteo-model', pm25Source: 'cams-model', rainPeriod: 'calendar-day', timezone: 'Asia/Bangkok',
+  };
+}
+
+// A source's value, valid time and point travel together. Do not label a TMD
+// forecast with Open-Meteo's timestamp or with the province reference point.
+export function currentForecast(weather = {}, air = {}, tmd = null, now = Date.now()) {
+  const current = weather.current || {};
+  const hasTmd = finiteOrNull(tmd?.tc) !== null && !isStaleTime(tmd?.validAt, now);
+  const validAt = hasTmd ? tmd.validAt : current.time || null;
+  const date = bangkokDateKey(now);
+  const day = weather.daily?.time?.indexOf(date) ?? -1;
+  const hour = weather.hourly?.time?.findIndex(time => time.slice(0, 13) === current.time?.slice(0, 13)) ?? -1;
+  const pmWindow = rollingPm25(air.hourly, air.current?.time);
+  return {
+    temp: roundedOrNull(hasTmd ? tmd.tc : current.temperature_2m), tempMin: roundedOrNull(weather.daily?.temperature_2m_min?.[day]), tempMax: roundedOrNull(weather.daily?.temperature_2m_max?.[day]), tempDate: day >= 0 ? date : null,
+    feelsLike: roundedOrNull(current.apparent_temperature), humidity: roundedOrNull(hasTmd ? tmd.rh : current.relative_humidity_2m),
+    rainProb: roundedOrNull(weather.hourly?.precipitation_probability?.[hour]), rainMm: roundedOrNull(weather.daily?.precipitation_sum?.[day], 1), rainDate: day >= 0 ? date : null,
+    windSpeed: roundedOrNull(current.wind_speed_10m), windGust: roundedOrNull(current.wind_gusts_10m), windDir: roundedOrNull(current.wind_direction_10m),
+    uv: roundedOrNull(weather.hourly?.uv_index?.[hour]), pressure: hasTmd ? roundedOrNull(tmd.slp) : null, cond: hasTmd ? finiteOrNull(tmd.cond) : null,
+    source: hasTmd ? 'tmd' : 'open-meteo-model', validAt, weatherTime: validAt, pm25Time: air.current?.time || null,
+    tempSource: hasTmd ? 'tmd-nwp-model' : 'open-meteo-model', tempMinMaxSource: 'open-meteo-model', rainSource: 'open-meteo-model', rainPeriod: 'calendar-day',
+    supplementalWeatherTime: current.time || null,
+    weatherLocation: hasTmd ? { lat: finiteOrNull(tmd.lat), lon: finiteOrNull(tmd.lon), elevation: null } : { lat: finiteOrNull(weather.latitude), lon: finiteOrNull(weather.longitude), elevation: finiteOrNull(weather.elevation) },
+    hourlyRainMm: hasTmd ? roundedOrNull(tmd.rain, 1) : null, hourlyRainTime: hasTmd ? tmd.validAt : null, hourlyRainSource: hasTmd ? 'tmd-nwp-model' : null,
+    pm25Average24h: pmWindow.average, pm25ValidHours24h: pmWindow.validHours, pm25WindowStart: pmWindow.windowStart, pm25WindowEnd: pmWindow.windowEnd,
+    stale: isStaleTime(validAt, now), airStale: finiteOrNull(air.current?.pm2_5) === null || isStaleTime(air.current?.time, now),
+  };
 }

@@ -1,35 +1,88 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-11T00:00:00+07:00",
+  "generatedAt": "2026-11-16T00:00:00+07:00",
   "title": "Design System: อากาศไทย",
   "extensions": {
     "colorMeta": {
-      "primary": { "role": "primary", "displayName": "Action blue" },
-      "primary-soft": { "role": "primary", "displayName": "Pale selected blue" },
-      "surface": { "role": "neutral", "displayName": "White surface" },
-      "bg": { "role": "neutral", "displayName": "Pale blue canvas" },
-      "ink": { "role": "neutral", "displayName": "Dark blue text" }
+      "primary": {
+        "role": "primary",
+        "displayName": "Action blue"
+      },
+      "primary-soft": {
+        "role": "primary",
+        "displayName": "Pale selected blue"
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "White surface"
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Pale blue canvas"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Dark blue text"
+      }
     },
     "typographyMeta": {
-      "body": { "displayName": "Thai body text", "purpose": "Shared self-hosted Thai font and fallback stack." },
-      "temperature": { "displayName": "Current temperature", "purpose": "Primary weather value; tabular numerals and a smaller mobile size." }
+      "body": {
+        "displayName": "Thai body text",
+        "purpose": "Shared self-hosted Thai font and fallback stack."
+      },
+      "temperature": {
+        "displayName": "Current temperature",
+        "purpose": "Primary weather value; tabular numerals and a smaller mobile size."
+      }
     },
     "shadows": [
-      { "name": "selected-segment", "value": "0 2px 5px #0b518812", "purpose": "Separates the white selected forecast segment from its pale track." }
+      {
+        "name": "selected-segment",
+        "value": "0 2px 5px #0b518812",
+        "purpose": "Separates the white selected forecast segment from its pale track."
+      }
     ],
     "motion": [
-      { "name": "weather-button", "value": "background-color 180ms", "purpose": "Weather button hover fill." },
-      { "name": "radar-disclosure", "value": "transform 200ms", "purpose": "Rotates the disclosure arrow on expansion." }
+      {
+        "name": "weather-button",
+        "value": "background-color 180ms",
+        "purpose": "Weather button hover fill."
+      },
+      {
+        "name": "radar-disclosure",
+        "value": "transform 200ms",
+        "purpose": "Rotates the disclosure arrow on expansion."
+      }
     ],
     "breakpoints": [
-      { "name": "weather-intermediate", "value": "1050px" },
-      { "name": "weather-single-column", "value": "760px" },
-      { "name": "mobile-navigation", "value": "700px" },
-      { "name": "narrow-weather", "value": "360px" }
+      {
+        "name": "weather-intermediate",
+        "value": "1050px"
+      },
+      {
+        "name": "weather-single-column",
+        "value": "760px"
+      },
+      {
+        "name": "mobile-navigation",
+        "value": "700px"
+      },
+      {
+        "name": "narrow-weather",
+        "value": "360px"
+      }
     ],
-    "focus": { "outline": "3px solid color-mix(in oklch, var(--focus) 45%, transparent)", "outlineOffset": "2px" },
+    "focus": {
+      "outline": "3px solid color-mix(in oklch, var(--focus) 45%, transparent)",
+      "outlineOffset": "2px"
+    },
     "reducedMotion": "Existing prefers-reduced-motion rules reduce animation and transition durations and disable smooth scrolling.",
-    "provenance": "Observed src/weather.css, src/index.css, src/components/Layout.jsx and desktop-first/mobile-first screenshots in artifacts/review. No approved comp. Tonal ramps are omitted because no additional palette was authorized."
+    "provenance": "Observed current weather components, riskScale.js and src/weather.css. User authorized semantic risk colors on 16 November 2026. White/blue remains the default surface palette.",
+    "weatherRisk": {
+      "component": "RiskValue",
+      "source": "src/utils/riskScale.js",
+      "periodRules": "Rain totals and PM bands require 24 hours; shorter totals and hourly PM are informational. Missing/stale grey. Model and observed station values retain separate labels."
+    }
   },
   "components": [
     {
@@ -51,9 +104,21 @@
   ],
   "narrative": {
     "overview": "Bright, clean white and blue is the explicit user direction. The interface uses readable Thai typography, clear weather values and restrained surfaces. Mobile should be immediately understandable; desktop should support efficient monitoring.\n\nPreserve the อากาศไทย identity and the four routes: วันนี้, แผนที่, ประกาศ and สถิติ. Light is the default, with the existing optional saved dark theme retained. This document records the implemented system, not an approved design comp or a new branding metaphor.",
-    "keyCharacteristics": ["White panels on a pale blue canvas.", "Large weather numbers with readable Thai labels.", "Clear controls and compact monitoring views."],
+    "keyCharacteristics": [
+      "White panels on a pale blue canvas.",
+      "Large weather numbers with readable Thai labels.",
+      "Clear controls and compact monitoring views."
+    ],
     "rules": [],
-    "dos": ["Do preserve the bright white and blue direction and readable Thai hierarchy.", "Do keep source labels, timestamps and missing-data states visible.", "Do maintain the four routes and usable mobile navigation."],
-    "donts": ["Don't replace missing readings with invented values.", "Don't let decoration obscure weather values or monitoring controls.", "Don't turn the optional dark theme into the default visual direction."]
+    "dos": [
+      "Do preserve the bright white and blue direction and readable Thai hierarchy.",
+      "Do keep source labels, timestamps and missing-data states visible.",
+      "Do maintain the four routes and usable mobile navigation."
+    ],
+    "donts": [
+      "Don't replace missing readings with invented values.",
+      "Don't let decoration obscure weather values or monitoring controls.",
+      "Don't turn the optional dark theme into the default visual direction."
+    ]
   }
 }

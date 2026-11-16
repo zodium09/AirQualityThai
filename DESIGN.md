@@ -136,3 +136,12 @@ State transitions are short, generally 180–200ms. Honor the existing reduced-m
 - **Don't** replace missing readings with invented values.
 - **Don't** let decoration obscure weather values or monitoring controls.
 - **Don't** turn the optional dark theme into the default visual direction.
+
+
+## Semantic weather readings (16 November 2026)
+
+Use the shared RiskValue component and riskScale.js across dashboard, daily statistics and monitoring. Keep the bright white/blue identity; semantic color belongs to readings and their labels. Light foregrounds are #155fa0 information, #166534 low/general, #075985 cold, #92400e watch, #9a3412 high, #b91c1c danger, #6b21a8 extreme and #536579 unavailable/stale. The optional dark theme uses lighter foregrounds, including on its dark blue current-weather surface.
+
+Every scale has visible labels and an expandable reference legend. Rainfall classification only applies to 24-hour/calendar-day totals; 1–3-hour amounts remain informational. PM concentration bands only apply to 24-hour means; modeled values are explicitly estimates, not official AQI. Historical multi-day summary values stay neutral. Current humidity, pressure and apparent temperature do not inherit unsupported health thresholds. Cold and heat use separate ends of the temperature scale. Stale and missing values are grey.
+
+Daily low/high temperatures are explicit in the first weather surface. Rain amounts lead the brief and hourly chart, while point probabilities stay secondary. Named mountain reference points retain coordinates, elevation and source. Actual station observations are presented separately with distance and measurement window. The radar surface contains historical frames and coverage status, without inferred ETA or confidence percentages.

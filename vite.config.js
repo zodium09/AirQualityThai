@@ -109,6 +109,8 @@ export default defineConfig(({ mode }) => {
     makeApiDevPlugin('weather-data', 'weather-data.js'),
     makeApiDevPlugin('weather-history', 'weather-history.js'),
     makeApiDevPlugin('statistics', 'statistics.js'),
+    makeApiDevPlugin('observations', 'observations.js'),
+    makeApiDevPlugin('mountain-outlook', 'mountain-outlook.js'),
     makeApiDevPlugin('radar', 'radar.js'),
     makeApiDevPlugin('enso', 'enso.js'),
     makeApiDevPlugin('tmd-wind', 'tmd-wind.js'),
