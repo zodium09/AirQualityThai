@@ -6,6 +6,7 @@ import { fetchNationalForecast } from '../src/server/nationalForecast.js';
 import statistics, { historicalRows } from '../api/statistics.js';
 import { sanitizeGistdaSummary, sanitizeWeatherPayload } from '../api/weather-data.js';
 import { provinces77 } from '../src/provinces77.js';
+import { riskLevel } from '../src/utils/riskScale.js';
 
 const NOW = weatherDate('2026-11-16T12:15').getTime();
 const sampleWeather = () => ({
@@ -71,7 +72,7 @@ test('rolling PM uses 24 distinct past hours; future and duplicate records canno
 test('TMD temperature retains its own time and location; hourly TMD rain never replaces daily rain', () => {
   const tmd = { tc: 4.2, validAt: '2026-11-16T12:00', lat: 19.93, lon: 99.04, rain: 1.3 };
   const data = currentForecast(sampleWeather(), rollingAir(), tmd, NOW);
-  assert.equal(data.temp, 4);
+  assert.equal(data.temp, 4.2);
   assert.equal(data.weatherTime, tmd.validAt);
   assert.equal(data.supplementalWeatherTime, '2026-11-16T12:15');
   assert.equal(data.weatherLocation.lat, 19.93);
@@ -96,6 +97,37 @@ test('daily forecasts keep min/max and rainfall separate from legacy probability
   assert.deepEqual(data.rainMm, [0, 12.6]);
   assert.deepEqual(data.rain, [0, 60]);
   assert.deepEqual(data.windGust, [null, null]);
+});
+
+test('national measurements preserve source decimals before risk thresholds', () => {
+  const weather = sampleWeather();
+  weather.current.temperature_2m = 34.8;
+  weather.current.wind_gusts_10m = 39.9;
+  weather.hourly.uv_index = [5.9];
+  weather.daily.temperature_2m_min[1] = 22.9;
+  weather.daily.temperature_2m_max[1] = 34.8;
+  weather.daily.precipitation_sum[1] = 35.04;
+  const current = currentForecast(weather, rollingAir(), null, NOW);
+  for (const [key, value, metric, hours] of [['temp', 34.8, 'temperature'], ['tempMin', 22.9, 'temperature'], ['tempMax', 34.8, 'temperature'], ['windGust', 39.9, 'gust'], ['uv', 5.9, 'uv'], ['rainMm', 35.04, 'rain', 24]]) {
+    assert.equal(current[key], value, key);
+    assert.equal(riskLevel(metric, current[key], { hours }).tone, riskLevel(metric, value, { hours }).tone, key);
+  }
+  const daily = dailyForecast(weather);
+  assert.equal(daily.tempMin[1], 22.9);
+  assert.equal(daily.tempMax[1], 34.8);
+  assert.equal(daily.rainMm[1], 35.04);
+});
+
+test('national provider preserves hourly PM and temperature precision through serialization', async () => {
+  const data = await fetchNationalForecast(async url => {
+    const count = new URL(url).searchParams.get('latitude').split(',').length;
+    const air = url.includes('air-quality-api');
+    return { ok: true, json: async () => Array.from({ length: count }, () => air ? { current: { time: '2026-11-16T12:00', pm2_5: 24.7 } } : { current: { time: '2026-11-16T12:15', temperature_2m: 34.8 }, daily: { time: ['2026-11-16'], temperature_2m_max: [34.8] } }) };
+  }, NOW);
+  const decoded = JSON.parse(JSON.stringify(data));
+  assert.equal(decoded.stationTemps.PROV_0.temp, 34.8);
+  assert.equal(decoded.stationTemps.PROV_0.tempMax, 34.8);
+  assert.equal(decoded.stations[0].AQILast.PM25.value, 24.7);
 });
 
 test('calendar PM coverage counts unique valid hours and historical means require all 24', () => {

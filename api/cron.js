@@ -82,11 +82,11 @@ function processTmdData(forecasts) {
             geocode: loc.geocode || '',
             validAt: item.forecasts?.[0]?.time || null,
             source: 'tmd-nwp-model',
-            tc: roundedOrNull(d.tc, 1), rh: roundedOrNull(d.rh), rain: roundedOrNull(d.rain, 1),
+            tc: roundedOrNull(d.tc), rh: roundedOrNull(d.rh), rain: roundedOrNull(d.rain),
             slp: roundedOrNull(d.slp), cond: roundedOrNull(d.cond),
             hourlyForecasts: (item.forecasts || []).slice(0, 24).map(fc => ({
                 time: fc.time || null,
-                tc: roundedOrNull(fc.data?.tc, 1), rh: roundedOrNull(fc.data?.rh), rain: roundedOrNull(fc.data?.rain, 1)
+                tc: roundedOrNull(fc.data?.tc), rh: roundedOrNull(fc.data?.rh), rain: roundedOrNull(fc.data?.rain)
             }))
         };
 

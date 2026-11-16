@@ -1,10 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { finiteOrNull, forecastUrls, isStaleTime, normalizeForecast, weatherDate } from '../utils/weatherData';
+import { finiteOrNull, forecastUrls, normalizeForecast, weatherDate } from '../utils/weatherData';
 
 const CACHE_KEY = 'air4thai.forecast.v3';
 const samePlace = (data, lat, lon, elevation) => data?.coords?.lat === lat && data?.coords?.lon === lon && finiteOrNull(data?.coords?.elevation) === finiteOrNull(elevation);
 const usableCache = (data, lat, lon, elevation) => samePlace(data, lat, lon, elevation) && Date.now() - weatherDate(data.validAt || data.observedAt).getTime() < 86400000;
-const cachedState = data => data ? { ...data, stale: true, airStale: data.current?.pm25 == null || isStaleTime(data.airValidAt || data.airObservedAt) } : null;
+const cachedState = data => data ? { ...data, stale: true, airStale: true } : null;
 
 export function useWeatherData() {
   const [weatherData, setWeatherData] = useState(null);

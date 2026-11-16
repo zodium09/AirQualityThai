@@ -373,3 +373,28 @@ body.dark-theme .wx-extremes small { color: #bdd9ee; }
 .mountain-regions { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin: 20px 0; }
 .mountain-regions h3 { font-size: 1rem; margin: 0; }
 @media (max-width: 760px) { .mountain-regions { grid-template-columns: 1fr; } }
+
+/* Map risk colors use the light palette, so keep their popup surface and text
+   readable together even when the surrounding application uses dark mode. */
+.map-page .leaflet-popup-content-wrapper,
+.map-page .leaflet-popup-tip { background: #fff; color: #17344f; }
+.map-page .map-popup small { color: #435f78; }
+.map-page .map-popup a { color: #0c5ebc; }
+
+/* Live usability review: reachable controls and explicit map selection. */
+.stats-province select, .wx-segment button, .map-touch-gate { min-height: 44px; }
+.risk-legend summary { min-height: 44px; padding: 10px 4px; }
+.stat-kpi strong.stat-change { flex-wrap: wrap; color: var(--ink); }
+.stat-change__direction { flex-basis: 100%; font-size: .82rem; font-weight: 600; }
+.map-canvas { scroll-margin-top: 80px; }
+.map-canvas, .radar-history-image { isolation: isolate; }
+.map-canvas:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
+.map-selection { position: absolute; z-index: 900; top: 12px; left: 54px; right: 12px; max-width: 350px; display: grid; gap: 4px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; color: var(--ink); font-size: .84rem; }
+.map-selection > span { color: var(--muted); font-size: .76rem; }
+.map-selection a { display: flex; align-items: center; min-height: 44px; color: var(--primary-hover); text-decoration: underline; }
+.mobile-nav__theme { border: 0; background: transparent; font-family: inherit; cursor: pointer; }
+@media (max-width: 700px) {
+  .mobile-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .mobile-nav__theme { min-width: 0; }
+  .map-canvas { scroll-margin-top: 8px; }
+}

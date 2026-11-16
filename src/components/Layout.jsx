@@ -65,6 +65,10 @@ export default function Layout() {
 
       <nav aria-label="เมนูหลักบนมือถือ" className="mobile-nav">
         <NavigationLinks mobile />
+        <button className="mobile-nav__link mobile-nav__theme" aria-label={darkMode ? 'เปลี่ยนเป็นโหมดสว่าง' : 'เปลี่ยนเป็นโหมดมืด'} onClick={() => setDarkMode(!darkMode)} type="button">
+          {darkMode ? <Sun aria-hidden="true" size={21} /> : <Moon aria-hidden="true" size={21} />}
+          <span>{darkMode ? 'โหมดสว่าง' : 'โหมดมืด'}</span>
+        </button>
       </nav>
 
       <InstallPrompt />

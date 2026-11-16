@@ -36,6 +36,7 @@ export default function StatsPage() {
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
   const sortedStations = useMemo(() => [...provinces77.map(p => ({ stationID: p.n, areaTH: p.n, lat: p.lat, long: p.lon })), ...mountainPlaces.map(p => ({ stationID: p.id, areaTH: p.name, lat: p.lat, long: p.lon, elevation: p.elevation }))].sort((a, b) => a.areaTH.localeCompare(b.areaTH, 'th')), []);
   const selectedStation = useMemo(() => sortedStations.find((item) => cleanName(item.areaTH) === cleanName(province)) || sortedStations[0], [province, sortedStations]);
 
@@ -45,17 +46,17 @@ export default function StatsPage() {
     setLoading(true);
     setPayload(null);
     setError('');
-    fetch(`/api/statistics?lat=${selectedStation.lat}&lon=${selectedStation.long}${selectedStation.elevation == null ? '' : '&elevation=' + selectedStation.elevation}`, { signal: controller.signal })
+    fetch(`/api/statistics?lat=${selectedStation.lat}&lon=${selectedStation.long}${selectedStation.elevation == null ? '' : '&elevation=' + selectedStation.elevation}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(35000)]) })
       .then((response) => {
         if (!response.ok) throw new Error(`ระบบสถิติตอบกลับ ${response.status}`);
         if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('บริการสถิติยังไม่พร้อมในโหมดทดสอบนี้');
         return response.json();
       })
-      .then(setPayload)
-      .catch((loadError) => { if (loadError.name !== 'AbortError') setError(loadError.message); })
+      .then(data => { if (!controller.signal.aborted) setPayload(data); })
+      .catch((loadError) => { if (!controller.signal.aborted) setError(loadError.name === 'TimeoutError' ? 'การเชื่อมต่อใช้เวลานานเกินไป กรุณาลองอีกครั้ง' : 'เชื่อมต่อข้อมูลย้อนหลังไม่ได้ กรุณาลองอีกครั้ง'); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [selectedStation]);
+  }, [selectedStation, retry]);
 
   const config = metrics[metric];
   const analysis = useMemo(() => {
@@ -73,8 +74,8 @@ export default function StatsPage() {
       previous,
       average,
       difference: current !== null && previous !== null ? round(current - previous) : null,
-      max: values.length ? round(Math.max(...values)) : null,
-      min: values.length ? round(Math.min(...values)) : null,
+      max: values.length ? Math.max(...values) : null,
+      min: values.length ? Math.min(...values) : null,
       days: values.length,
       chart,
     };
@@ -84,8 +85,11 @@ export default function StatsPage() {
   const ChangeIcon = changeUp ? TrendingUp : TrendingDown;
 
   const handleProvince = (event) => {
+    setPayload(null);
+    setLoading(true);
+    setError('');
     setProvince(event.target.value);
-    localStorage.setItem(LOCATION_KEY, event.target.value);
+    try { localStorage.setItem(LOCATION_KEY, event.target.value); } catch { /* Optional preference. */ }
   };
 
   return (
@@ -97,18 +101,18 @@ export default function StatsPage() {
         </header>
 
         <div className="stats-controls">
-          <div className="metric-tabs" role="group" aria-label="เลือกข้อมูลสถิติ">{Object.entries(metrics).map(([key, item]) => { const Icon = item.icon; return <button className={metric === key ? 'is-active' : ''} data-metric={key.startsWith('temp') || key === 'heatMax' ? 'temp' : key === 'pm25' ? 'wind' : 'rain'} key={key} onClick={() => setMetric(key)} type="button"><Icon aria-hidden="true" size={16} /> {item.label}</button>; })}</div>
-          <div className="period-tabs" role="group" aria-label="เลือกช่วงเวลา">{periods.map((item) => <button className={period === item.value ? 'is-active' : ''} key={item.value} onClick={() => setPeriod(item.value)} type="button">{item.label}</button>)}</div>
+          <div className="metric-tabs" role="group" aria-label="เลือกข้อมูลสถิติ">{Object.entries(metrics).map(([key, item]) => { const Icon = item.icon; return <button aria-pressed={metric === key} className={metric === key ? 'is-active' : ''} data-metric={key.startsWith('temp') || key === 'heatMax' ? 'temp' : key === 'pm25' ? 'wind' : 'rain'} key={key} onClick={() => setMetric(key)} type="button"><Icon aria-hidden="true" size={16} /> {item.label}</button>; })}</div>
+          <div className="period-tabs" role="group" aria-label="เลือกช่วงเวลา">{periods.map((item) => <button aria-pressed={period === item.value} className={period === item.value ? 'is-active' : ''} key={item.value} onClick={() => setPeriod(item.value)} type="button">{item.label}</button>)}</div>
         </div>
 
         {!loading && analysis.chart.length > 0 && <p className="stats-source">ช่วงข้อมูล {formatShortDate(analysis.chart[0].date)} – {formatShortDate(analysis.chart.at(-1).date)} · ข้อมูลย้อนหลังอาจล่าช้าจากวันปัจจุบัน · ค่าสรุปหลายวันใช้สีข้อมูล อ่านระดับสีจากค่ารายวัน</p>}
         {loading ? <div className="stats-loading"><LoaderCircle className="is-spinning" size={28} /><strong>กำลังวิเคราะห์ข้อมูลย้อนหลังของ{cleanName(province)}</strong></div>
-          : error ? <div className="empty-state"><BarChart3 size={28} /><h2>ยังโหลดสถิติไม่ได้</h2><p>{error}</p></div>
+          : error ? <div className="empty-state" role="status"><BarChart3 size={28} /><h2>ยังโหลดสถิติไม่ได้</h2><p>{error}</p><button className="wx-button wx-button--quiet" type="button" onClick={() => setRetry(value => value + 1)}>ลองโหลดสถิติอีกครั้ง</button></div>
             : (
               <>
                 <section className="stats-kpis" aria-label="สรุปสถิติ">
                   <article className="stat-kpi stat-kpi--primary"><span>{metric === 'rain' ? 'รวมฝนเฉพาะวันที่มีข้อมูล' : `เฉลี่ย${config.label}รายวัน`}</span><strong>{analysis.current ?? '–'} <small>{config.unit}</small></strong><p>{analysis.days} วันที่มีข้อมูล / {period} วัน</p></article>
-                  <article className="stat-kpi"><span>เทียบช่วงก่อนหน้า</span><strong className={analysis.difference === null ? '' : changeUp ? 'is-up' : 'is-down'}>{analysis.difference === null ? '–' : <><ChangeIcon size={20} /> {Math.abs(analysis.difference)} <small>{config.unit}</small></>}</strong><p>{analysis.previous === null ? 'ข้อมูลช่วงก่อนหน้าไม่ครบ' : `ช่วงก่อนหน้า ${analysis.previous} ${config.unit}`}</p></article>
+                  <article className="stat-kpi"><span>เทียบช่วงก่อนหน้า</span><strong className="stat-change">{analysis.difference === null ? '–' : <><span className="stat-change__direction">{analysis.difference === 0 ? 'เท่าเดิม' : changeUp ? 'เพิ่มขึ้น' : 'ลดลง'}</span>{analysis.difference !== 0 && <ChangeIcon aria-hidden="true" size={20} />} {Math.abs(analysis.difference)} <small>{config.unit}</small></>}</strong><p>{analysis.previous === null ? 'ข้อมูลช่วงก่อนหน้าไม่ครบ' : `ช่วงก่อนหน้า ${analysis.previous} ${config.unit}`}</p></article>
                   <article className="stat-kpi"><span>ค่าเฉลี่ยรายวัน</span><strong>{analysis.average ?? '–'} <small>{config.unit}</small></strong><p>สูงสุด <RiskValue metric={metric.startsWith('temp') ? 'temperature' : metric === 'heatMax' ? 'apparent' : metric} value={analysis.max} hours={['rain', 'pm25'].includes(metric) ? 24 : null} /> · ต่ำสุด <RiskValue metric={metric.startsWith('temp') ? 'temperature' : metric === 'heatMax' ? 'apparent' : metric} value={analysis.min} hours={['rain', 'pm25'].includes(metric) ? 24 : null} /></p></article>
                 </section>
 

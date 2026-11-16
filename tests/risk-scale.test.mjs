@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { riskLevel } from '../src/utils/riskScale.js';
+import { formatRiskValue, riskLevel } from '../src/utils/riskScale.js';
 
 test('missing and stale readings never imply a safe or live level', () => {
   for (const value of [null, undefined, '', NaN, false]) assert.equal(riskLevel('rain', value, { hours: 24 }).tone, 'unknown');
@@ -22,4 +22,27 @@ test('temperature and UV boundaries include both hot and cold extremes', () => {
   assert.equal(riskLevel('uv', 11).label, 'สูงจัด');
   assert.equal(riskLevel('uv', 0).label, 'ต่ำ');
   assert.equal(riskLevel('apparent', 44).tone, 'info');
+});
+
+test('shown values retain their risk category when rounding or changing units', () => {
+  assert.equal(formatRiskValue('temperature', 34.96, { unit: '°C' }), '34.96°C');
+  assert.equal(formatRiskValue('temperature', 7.96), '7.96');
+  assert.equal(formatRiskValue('temperature', 22.96), '22.96');
+  assert.equal(formatRiskValue('rain', 35.04, { hours: 24, unit: ' มม.' }), '35.04 มม.');
+  assert.equal(formatRiskValue('pm25', 25.04, { hours: 24 }), '25.04');
+  assert.equal(formatRiskValue('uv', 2.96), '2.96');
+  assert.equal(formatRiskValue('gust', 39.96), '39.96');
+  assert.equal(formatRiskValue('visibility', 999, { divisor: 1000, unit: ' กม.' }), '0.999 กม.');
+  assert.equal(formatRiskValue('visibility', 4999, { divisor: 1000, unit: ' กม.' }), '4.999 กม.');
+});
+
+test('ordinary values stay concise and very close category boundaries use explicit bounds', () => {
+  assert.equal(formatRiskValue('temperature', 28.244), '28.2');
+  assert.equal(formatRiskValue('temperature', -7.95), '-8');
+  assert.equal(formatRiskValue('rain', 35.04, { hours: 3 }), '35');
+  assert.equal(formatRiskValue('pm25', 25.04, { hours: 1 }), '25');
+  assert.equal(formatRiskValue('temperature', 34.99996, { unit: '°C' }), '<35°C');
+  assert.equal(formatRiskValue('rain', 35.00004, { hours: 24, unit: ' มม.' }), '>35 มม.');
+  assert.equal(formatRiskValue('rain', null, { unit: ' มม.' }), '—');
+  assert.equal(formatRiskValue('pm25', -1, { hours: 24 }), '—');
 });

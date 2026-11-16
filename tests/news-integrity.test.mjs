@@ -5,6 +5,15 @@ import { buildNewsEvents, parseDdpmHtml, parseTmdEqHtml, prioritizeItems } from 
 import { issueTimeOf, isRecentNews, newsTimestamp, normalizeNewsDisplayItem, newsIsRelevant, normalizeSourceStatus, readNewsCache, summarizeNewsFeed } from '../src/server/newsIntegrity.js';
 
 const now = Date.parse('2026-11-16T12:00:00Z');
+
+test('official heavy-rain bulletins retain both their rain topic and warning category', () => {
+  const bulletin = { title: 'ฝนตกหนักถึงหนักมากบริเวณภาคใต้', summary: 'ติดตามประกาศฉบับล่าสุด', source: 'TMD', category: 'warning', scope: 'thailand', issuedAt: new Date(Date.now() - 60000).toISOString() };
+  const item = normalizeNewsDisplayItem(bulletin);
+  assert.equal(item.topic, 'rain');
+  assert.equal(item.category, 'warning');
+  const [event] = buildNewsEvents([bulletin]);
+  assert.equal(normalizeNewsDisplayItem(event).category, 'warning');
+});
 const datedDiscussion = text => `12 November 2026 ENSO Alert System Status: ${text}`;
 
 test('neutral current conditions never become El Niño from an outlook or IRI mention', () => {

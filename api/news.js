@@ -1,5 +1,6 @@
 ﻿import { GoogleGenerativeAI } from '@google/generative-ai';
 import { issueTimeOf, isRecentNews, newsTimestamp, normalizeSourceStatus } from '../src/server/newsIntegrity.js';
+import { fetchTmdWarnings } from '../src/server/tmdWarnings.js';
 
 // Module-level cache (survives across warm Vercel invocations and local dev reloads)
 let _newsCache = null;
@@ -1013,6 +1014,7 @@ export function buildNewsEvents(items = []) {
         id: eventKeyForItem(lead),
         title: lead.title,
         summary: lead.summary || lead.rawSummary || lead.title,
+        category: lead.category || null,
         topic,
         severity,
         lifecycle: lifecycleForCluster(sorted, topic, severity),
@@ -1022,6 +1024,10 @@ export function buildNewsEvents(items = []) {
         sources,
         areas,
         primaryArea: areas[0] || lead.country || null,
+        issuedAt: lead.issuedAt || null,
+        datePrecision: lead.datePrecision || null,
+        validFrom: lead.validFrom || null,
+        validTo: lead.validTo || null,
         publishedAt: publishedDates[publishedDates.length - 1]?.toISOString() || lead.publishedAt || null,
         updatedAt: publishedDates[0]?.toISOString() || lead.updatedAt || lead.publishedAt || null,
         url: lead.url || lead.link || null,
@@ -1416,12 +1422,15 @@ async function fetchTmdWebPages() {
     return parsed;
   };
 
+  const [verifiedStorms] = stormRes.status === 'fulfilled'
+    ? await Promise.allSettled([fetchTmdWarnings(stormRes.value, url => fetchText(url, { headers: htmlHeaders }, 6000))])
+    : [stormRes];
   return {
     daily: parsePage(dailyRes, TMD_WEB.daily, 'daily'),
     sevenday: parsePage(sevendayRes, TMD_WEB.sevenday, 'sevenday'),
-    storm: parsePage(stormRes, TMD_WEB.storm, 'storm'),
+    storm: verifiedStorms.status === 'fulfilled' ? verifiedStorms.value.map(enrichItem) : [],
     regions: regionsRaw.status === 'fulfilled' ? regionsRaw.value : [],
-    fetchStatus: { daily: dailyRes.status, sevenday: sevendayRes.status, storm: stormRes.status, regions: regionsRaw.status },
+    fetchStatus: { daily: dailyRes.status, sevenday: sevendayRes.status, storm: verifiedStorms.status, regions: regionsRaw.status },
   };
 }
 

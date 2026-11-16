@@ -71,6 +71,11 @@ function formatTime(value) {
   return new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 }
 
+function formatIssueTime(item) {
+  if (item.datePrecision !== 'day') return formatTime(item.publishedAt);
+  return new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(item.publishedAt));
+}
+
 function SeverityBadge({ severity }) {
   const label = severity === 'high' ? 'สำคัญ' : severity === 'medium' ? 'เฝ้าระวัง' : 'ติดตาม';
   return <span className={`severity severity--${severity}`}>{label}</span>;
@@ -162,7 +167,7 @@ export default function NewsPage() {
     const q = query.trim().toLowerCase();
     const category = categories.find((item) => item.id === activeCategory);
     return items.filter((item) => {
-      const matchesCategory = activeCategory === 'all' || category.topics.some((topic) => item.topic.includes(topic));
+      const matchesCategory = activeCategory === 'all' || category.topics.some(topic => item.topic.includes(topic) || item.category.includes(topic));
       const haystack = `${item.title} ${item.summary} ${item.area} ${item.source}`.toLowerCase();
       return matchesCategory && (!q || haystack.includes(q));
     });
@@ -220,7 +225,7 @@ export default function NewsPage() {
             {categories.map((category) => {
               const Icon = category.icon;
               return (
-                <button className={activeCategory === category.id ? 'is-active' : ''} key={category.id} onClick={() => setActiveCategory(category.id)} type="button">
+                <button aria-pressed={activeCategory === category.id} className={activeCategory === category.id ? 'is-active' : ''} key={category.id} onClick={() => setActiveCategory(category.id)} type="button">
                   <Icon aria-hidden="true" size={15} /> {category.label}
                 </button>
               );
@@ -238,7 +243,7 @@ export default function NewsPage() {
               <SeverityBadge severity={priority.severity} />
               <span>{priority.area}</span>
               <span>{priority.source}</span>
-              <span>{priority.publishedAt ? `ประกาศ ${formatTime(priority.publishedAt)}` : 'ไม่ทราบวันประกาศ'}</span>
+              <span>{priority.publishedAt ? `ประกาศ ${formatIssueTime(priority)}` : 'ไม่ทราบวันประกาศ'}</span>
             </div>
             {priority.url && (
               <a className="button button--primary button--compact" href={priority.url} rel="noreferrer" target="_blank">
@@ -278,7 +283,7 @@ export default function NewsPage() {
                       <div className="event-row__meta">
                         <span>{item.area}</span>
                         <span>{item.source}</span>
-                        <span>{item.publishedAt ? `ประกาศ ${formatTime(item.publishedAt)}` : 'ไม่ทราบวันประกาศ'}</span>
+                        <span>{item.publishedAt ? `ประกาศ ${formatIssueTime(item)}` : 'ไม่ทราบวันประกาศ'}</span>
                       </div>
                     </div>
                     {item.url && (

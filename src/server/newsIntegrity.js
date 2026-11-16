@@ -18,6 +18,13 @@ export function isRecentNews(item, maxHours, now = Date.now()) {
   const at = issueTimeOf(item);
   if (!at) return false;
   const age = now - Date.parse(at);
+  const start = Date.parse(item.validFrom), end = Date.parse(item.validTo);
+  if (item.source === 'TMD' && item.dateConfidence === 'source' && Number.isFinite(start) && Number.isFinite(end)) {
+    // A dated official warning can cover several days after its publication.
+    // Expired warnings must not survive merely because they were issued recently.
+    return age >= -3600000 && start <= end && end - start <= 31 * 86400000
+      && start - Date.parse(at) <= 14 * 86400000 && end > now;
+  }
   return age >= -3600000 && age <= maxHours * 3600000;
 }
 
@@ -60,6 +67,7 @@ export function normalizeNewsDisplayItem(item, index = 0) {
         : /flood|น้ำท่วม/.test(topicHint) ? 'flood'
           : /volcano|ภูเขาไฟ/.test(topicHint) ? 'volcano'
             : /drought|ภัยแล้ง/.test(topicHint) ? 'drought'
+              : /rain|ฝน/.test(topicHint) ? 'rain'
               : String(item?.topic || item?.eventType || item?.category || 'other').toLowerCase();
   const publishedAt = issueTimeOf(item);
   const severity = publishedAt && item?.severity === 'high' ? 'high' : publishedAt && item?.severity === 'medium' ? 'medium' : 'low';
@@ -68,7 +76,7 @@ export function normalizeNewsDisplayItem(item, index = 0) {
     id: item?.id || `${source}-${publishedAt || index}-${item?.title || index}`,
     title: item?.title || 'ประกาศเหตุการณ์ธรรมชาติ',
     summary: item?.summary || item?.description || 'เปิดต้นทางเพื่อดูรายละเอียด',
-    topic, severity, publishedAt, source,
+    topic, category: String(item?.category || ''), severity, publishedAt, source, datePrecision: item?.datePrecision || null,
     area: item?.primaryArea || areas[0] || item?.area || 'ไม่ระบุพื้นที่',
     url: item?.url || item?.link || item?.items?.[0]?.url || '', scope: item?.scope || 'unknown',
   };

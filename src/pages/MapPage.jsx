@@ -1,11 +1,12 @@
-import { useContext, useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { geoJSON as leafletGeoJSON } from 'leaflet';
 import { CircleMarker, GeoJSON, MapContainer, TileLayer, useMap } from 'react-leaflet';
 import { CloudRain, Download, Gauge, Hand, Monitor, RefreshCw, Search, Thermometer, Wind } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import LoadingScreen from '../components/LoadingScreen';
 import { WeatherContext } from '../context/WeatherContext';
 import { displayValue, thaiTime } from '../utils/weatherData';
-import { riskLevel } from '../utils/riskScale';
+import { formatRiskValue, riskLevel } from '../utils/riskScale';
 import { mapReading } from '../utils/mapReadings';
 import RiskValue, { RiskLegend } from '../components/RiskValue';
 
@@ -43,9 +44,22 @@ function getFeatureName(feature) {
 
 function MapFocus({ station }) {
   const map = useMap();
+  const lat = Number(station?.lat), lon = Number(station?.long), id = station?.stationID;
   useEffect(() => {
-    if (station) map.flyTo([Number(station.lat), Number(station.long)], 7.2, { duration: 0.7 });
-  }, [map, station]);
+    if (id && Number.isFinite(lat) && Number.isFinite(lon)) map.flyTo([lat, lon], 7.2, { duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 0.7 });
+  }, [map, lat, lon, id]);
+  return null;
+}
+
+function MapOverview({ bounds, selected, resetVersion }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!bounds || selected) return undefined;
+    const fit = () => map.fitBounds(bounds, { paddingTopLeft: [20, 20], paddingBottomRight: [20, 60], animate: false });
+    fit();
+    map.on('resize', fit);
+    return () => map.off('resize', fit);
+  }, [map, bounds, selected, resetVersion]);
   return null;
 }
 
@@ -69,7 +83,9 @@ export default function MapPage() {
   const [monitor, setMonitor] = useState(() => new URLSearchParams(window.location.search).get('monitor') === '1');
   const [metric, setMetric] = useState('rain');
   const [query, setQuery] = useState('');
-  const [selectedStation, setSelectedStation] = useState(null);
+  const [selectedStationId, setSelectedStationId] = useState(null);
+  const [overviewVersion, setOverviewVersion] = useState(0);
+  const mapCanvas = useRef(null);
   const [geoData, setGeoData] = useState(null);
   const [compact, setCompact] = useState(false);
   const [mapInteractive, setMapInteractive] = useState(true);
@@ -99,6 +115,16 @@ export default function MapPage() {
     const reading = mapReading(station, stationTemps, metric, now);
     return { station: { ...station, lat: reading.lat, long: reading.lon }, name: cleanName(station.areaTH), ...reading, stale: reading.stale || weatherMeta.fetchFailed };
   }), [metric, stationTemps, stations, now, weatherMeta.fetchFailed]);
+  const selectedRow = allRows.find(row => row.station.stationID === selectedStationId);
+  const selectedStation = selectedRow?.station;
+  const countryBounds = useMemo(() => geoData ? leafletGeoJSON(geoData).getBounds() : null, [geoData]);
+  const revealMap = () => {
+    if (!compact) return;
+    mapCanvas.current?.scrollIntoView({ block: 'start', behavior: 'auto' });
+    mapCanvas.current?.focus({ preventScroll: true });
+  };
+  const selectProvince = station => { setSelectedStationId(station.stationID); revealMap(); };
+  const showCountry = () => { setSelectedStationId(null); setOverviewVersion(version => version + 1); revealMap(); };
 
   const rowByName = useMemo(() => new Map(allRows.map((row) => [row.name, row])), [allRows]);
   const rows = useMemo(() => allRows.filter((item) => item.name.toLowerCase().includes(query.trim().toLowerCase())), [allRows, query]);
@@ -130,10 +156,11 @@ export default function MapPage() {
     const name = getFeatureName(feature);
     const row = rowByName.get(name);
     const value = row?.value ?? null;
-    layer.bindPopup(`<div class="map-popup"><strong>${name}</strong><span style="color:${getMetricTone(metric, value, row?.stale)}">${displayValue(value, '', 1)} ${meta.unit}</span><small>${getMetricStatus(metric, value, row?.stale)} · จุดอ้างอิงจังหวัด · ${thaiTime(row?.validAt, { day: 'numeric', month: 'short' })}</small><a href="/?province=${encodeURIComponent(name)}">ดูพยากรณ์จังหวัดนี้</a></div>`);
+    const readingText = formatRiskValue(row?.riskMetric || metric, value, { unit: ` ${meta.unit}`, hours: row?.hours }).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+    layer.bindPopup(`<div class="map-popup"><strong>${name}</strong><span style="color:${getMetricTone(metric, value, row?.stale)}">${readingText}</span><small>${getMetricStatus(metric, value, row?.stale)} · จุดอ้างอิงจังหวัด · ${thaiTime(row?.validAt, { day: 'numeric', month: 'short' })}</small><a href="/?province=${encodeURIComponent(name)}">ดูพยากรณ์จังหวัดนี้</a></div>`);
     layer.on({
       click: () => {
-        if (row) setSelectedStation(row.station);
+        if (row) setSelectedStationId(row.station.stationID);
         layer.setStyle({ color: '#102b64', fillOpacity: 0.95, weight: 3 });
       },
       mouseover: () => layer.setStyle({ fillOpacity: 0.95, weight: 2.3 }),
@@ -161,7 +188,7 @@ export default function MapPage() {
             return <button aria-pressed={metric === key} className={metric === key ? 'is-active' : ''} data-metric={key} key={key} onClick={() => setMetric(key)} type="button"><Icon aria-hidden="true" size={16} /> {option.label}</button>;
           })}
         </div>
-        <div className="map-monitor-actions"><button className="wx-button wx-button--quiet" type="button" disabled={refreshing} onClick={refreshWeather}><RefreshCw size={16} className={refreshing ? 'is-spinning' : ''} /> อัปเดต</button><button className="wx-button wx-button--quiet" type="button" onClick={exportCsv}><Download size={16} /> CSV</button><button className="wx-button wx-button--quiet" type="button" aria-pressed={monitor} onClick={() => setMonitor(!monitor)}><Monitor size={16} /> {monitor ? 'มุมมองปกติ' : 'มอนิเตอร์'}</button></div>
+        <div className="map-monitor-actions"><button className="wx-button wx-button--quiet" type="button" disabled={refreshing} onClick={refreshWeather}><RefreshCw size={16} className={refreshing ? 'is-spinning' : ''} /> อัปเดต</button><button className="wx-button wx-button--quiet" type="button" onClick={exportCsv}><Download size={16} /> CSV</button><button className="wx-button wx-button--quiet" type="button" aria-pressed={monitor} onClick={() => setMonitor(!monitor)}><Monitor size={16} /> {monitor ? 'มุมมองปกติ' : 'มอนิเตอร์'}</button><button className="wx-button wx-button--quiet" type="button" onClick={showCountry}>ดูทั้งประเทศ</button></div>
       </div>
       <div className="map-data-status"><span>มีข้อมูล{meta.label} {availableRows.length} / {allRows.length} จังหวัด · ข้อมูลเก่าหรือไม่พร้อมแสดงสีเทา</span><span>รีเฟรชอัตโนมัติทุก 10 นาที · {meta.unit}</span></div>
 
@@ -171,14 +198,16 @@ export default function MapPage() {
           <div className="map-summary"><span className="map-summary__icon"><MetricIcon aria-hidden="true" size={20} /></span><div><small>เฉลี่ยจุดอ้างอิงที่มีข้อมูลใหม่</small><strong>{displayValue(nationalAverage, '', 1)} <span>{meta.unit}</span></strong></div></div>
           <label className="search-field"><Search aria-hidden="true" size={18} /><span className="sr-only">ค้นหาจังหวัด</span><input onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาจังหวัด" type="search" value={query} /></label>
           <div className="province-list">
-            {ranked.map(({ station, name, value, stale, validAt, riskMetric, hours }, index) => <button className={`province-row${selectedStation?.stationID === station.stationID ? ' is-selected' : ''}`} key={station.stationID} onClick={() => setSelectedStation(station)} type="button"><span className="province-row__rank">{value === null || stale ? '–' : index + 1}</span><span className="province-row__name"><strong>{name}</strong><small>{getMetricStatus(metric, value, stale)}</small><small>{thaiTime(validAt, { day: 'numeric', month: 'short' })}</small></span><span className="province-row__value"><RiskValue metric={riskMetric} value={value} hours={hours} stale={stale} /> <small>{meta.unit}</small></span></button>)}
+            {ranked.map(({ station, name, value, stale, validAt, riskMetric, hours }, index) => <button className={`province-row${selectedStation?.stationID === station.stationID ? ' is-selected' : ''}`} key={station.stationID} onClick={() => selectProvince(station)} aria-pressed={selectedStationId === station.stationID} type="button"><span className="province-row__rank">{value === null || stale ? '–' : index + 1}</span><span className="province-row__name"><strong>{name}</strong><small>{getMetricStatus(metric, value, stale)}</small><small>{thaiTime(validAt, { day: 'numeric', month: 'short' })}</small></span><span className="province-row__value"><RiskValue metric={riskMetric} value={value} hours={hours} stale={stale} /> <small>{meta.unit}</small></span></button>)}
             {!ranked.length && <div className="empty-inline">ไม่พบจังหวัดที่ตรงกับคำค้น</div>}
           </div>
         </aside>
 
-        <section aria-label={`แผนที่${meta.label}ทั่วประเทศไทย`} className={`map-canvas${mapInteractive ? ' is-interactive' : ''}`}>
-          <MapContainer center={[13.2, 101.1]} maxBounds={[[3.5, 92], [23, 110]]} minZoom={5} scrollWheelZoom={false} zoom={5.6}>
+        <section ref={mapCanvas} tabIndex={-1} aria-label={`แผนที่${meta.label}ทั่วประเทศไทย`} className={`map-canvas${mapInteractive ? ' is-interactive' : ''}`}>
+          {selectedRow && <div className="map-selection" role="status"><strong>{selectedRow.name} · <RiskValue metric={selectedRow.riskMetric} value={selectedRow.value} hours={selectedRow.hours} stale={selectedRow.stale} unit={` ${meta.unit}`} /></strong><span>{meta.label} · {getMetricStatus(metric, selectedRow.value, selectedRow.stale)}</span><a href={`/?province=${encodeURIComponent(selectedRow.name)}`}>ดูพยากรณ์จังหวัดนี้</a></div>}
+          <MapContainer center={[13.2, 101.1]} maxBounds={[[3.5, 92], [23, 110]]} minZoom={4} zoomSnap={0.25} scrollWheelZoom={false} zoom={5}>
             <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            <MapOverview bounds={countryBounds} selected={Boolean(selectedStation)} resetVersion={overviewVersion} />
             <MapFocus station={selectedStation} />
             {rows.map(row => <CircleMarker key={row.station.stationID} center={[Number(row.station.lat), Number(row.station.long)]} radius={selectedStation?.stationID === row.station.stationID ? 6 : 2.5} pathOptions={{ color: '#17344f', fillColor: '#fff', fillOpacity: 1, weight: 1 }} interactive={false} />)}
             <MapInteraction enabled={!compact || mapInteractive} />

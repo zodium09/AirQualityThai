@@ -82,19 +82,9 @@ registerRoute(
   }),
 );
 
-registerRoute(
-  ({ url }) => url.hostname.includes('open-meteo.com'),
-  new NetworkFirst({
-    cacheName: 'weather-api-cache-v2',
-    networkTimeoutSeconds: 8,
-    plugins: [
-      new ExpirationPlugin({
-        maxEntries: 20,
-        maxAgeSeconds: 60 * 10,
-      }),
-    ],
-  }),
-);
+// Forecast fallback is owned by useWeatherData: its same-place cache carries
+// an explicit stale state. A service-worker NetworkFirst fallback would look
+// like a successful refresh and incorrectly keep cached readings colored.
 
 registerRoute(
   ({ url }) => /^https:\/\/fonts\.(googleapis|gstatic)\.com/.test(url.href),

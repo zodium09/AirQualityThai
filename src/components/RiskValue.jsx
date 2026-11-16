@@ -1,11 +1,10 @@
-import { displayValue, finiteOrNull } from '../utils/weatherData';
-import { riskLevel, riskSources } from '../utils/riskScale';
+import { formatRiskValue, riskLevel, riskSources } from '../utils/riskScale';
 
 export default function RiskValue({ value, metric, unit = '', digits = 1, stale = false, hours = null, label = false, className = '', divisor = 1 }) {
   const risk = riskLevel(metric, value, { stale, hours });
-  const displayed = finiteOrNull(value) === null ? null : Number(value) / divisor;
-  return <span className={`risk-value risk-${risk.tone} ${className}`} title={risk.label} data-risk={risk.tone} aria-label={`${displayValue(displayed, unit, digits)} · ${risk.label}`}>
-    <span className="risk-number">{displayValue(displayed, unit, digits)}</span>{label && <small className="risk-caption">{risk.label}</small>}
+  const displayed = formatRiskValue(metric, value, { unit, digits, hours, divisor });
+  return <span className={`risk-value risk-${risk.tone} ${className}`} title={risk.label} data-risk={risk.tone} aria-label={`${displayed} · ${risk.label}`}>
+    <span className="risk-number">{displayed}</span>{label && <small className="risk-caption">{risk.label}</small>}
   </span>;
 }
 

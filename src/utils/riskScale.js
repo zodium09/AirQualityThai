@@ -1,4 +1,4 @@
-import { finiteOrNull } from './weatherData.js';
+import { displayValue, finiteOrNull } from './weatherData.js';
 
 // Concentration bands require a complete 24-hour mean. Never apply them to hourly PM.
 export const riskColors = { unknown: '#536579', info: '#155fa0', low: '#166534', cool: '#075985', watch: '#92400e', high: '#9a3412', danger: '#b91c1c', extreme: '#6b21a8' };
@@ -52,6 +52,25 @@ export function riskLevel(metric, input, { stale = false, hours = null } = {}) {
     return result('info', 'มองเห็นตั้งแต่ 5 กม.');
   }
   return result('info', 'ค่าประกอบ · ไม่จัดระดับความเสี่ยง');
+}
+
+// Keep the displayed number on the same side of a category boundary as its
+// unrounded reading. Three decimal places cover metres shown in kilometres;
+// closer boundary values use an explicit bound instead of false precision.
+export function formatRiskValue(metric, input, { unit = '', digits = 1, hours = null, divisor = 1 } = {}) {
+  const value = finiteOrNull(input), scale = finiteOrNull(divisor);
+  const actual = riskLevel(metric, value, { hours });
+  if (actual.tone === 'unknown' || scale === null || scale <= 0) return displayValue(null, unit, digits);
+  const displayed = value / scale;
+  const firstDigits = Math.max(0, Math.min(3, Math.trunc(Number(digits)) || 0));
+  let rounded;
+  for (let precision = firstDigits; precision <= 3; precision += 1) {
+    // Intl rounds negative halves the same way as displayValue; Math.round does not.
+    rounded = Number(new Intl.NumberFormat('en-US', { maximumFractionDigits: precision, useGrouping: false }).format(displayed));
+    const shown = riskLevel(metric, rounded * scale, { hours });
+    if (shown.tone === actual.tone && shown.label === actual.label) return displayValue(displayed, unit, precision);
+  }
+  return `${displayed < rounded ? '<' : '>'}${displayValue(rounded, unit, 3)}`;
 }
 
 export const riskSources = {
