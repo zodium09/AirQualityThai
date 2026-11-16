@@ -43,3 +43,13 @@ test('warning fetch verifies real details, supports encoded Thai and never inven
   assert.deepEqual(await fetchTmdWarnings('<html>ไม่พบข้อมูล</html>', async () => detail, now), []);
   await assert.rejects(fetchTmdWarnings(listing, async () => { throw new Error('offline'); }, now), /verify/);
 });
+
+test('successive numbered bulletins for the same warning retain only the latest issue', async () => {
+  const olderListing = listing.replaceAll(card.url, card.url + '-older').replaceAll('ฉบับที่ 3', 'ฉบับที่ 2');
+  const olderDetail = detail.replaceAll('ฉบับที่ 3', 'ฉบับที่ 2').replace('เวลา 05.00', 'เวลา 04.00');
+  assert.equal(tmdWarningLinks(listing + olderListing).length, 2);
+  const items = await fetchTmdWarnings(listing + olderListing, async url => url.endsWith('-older') ? olderDetail : detail, now);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].issuedAt, '2026-11-15T22:00:00.000Z');
+  assert.equal(items[0].url, card.url);
+});

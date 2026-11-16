@@ -1,5 +1,4 @@
-﻿import { GoogleGenerativeAI } from '@google/generative-ai';
-import { issueTimeOf, isRecentNews, newsTimestamp, normalizeSourceStatus } from '../src/server/newsIntegrity.js';
+﻿import { issueTimeOf, isRecentNews, newsTimestamp, normalizeSourceStatus } from '../src/server/newsIntegrity.js';
 import { fetchTmdWarnings } from '../src/server/tmdWarnings.js';
 
 // Module-level cache (survives across warm Vercel invocations and local dev reloads)
@@ -58,8 +57,6 @@ const EONET_CATS = {
   snow:         { th: 'พายุหิมะ/หิมะหนัก',        severity: 'normal', category: 'global-disaster' },
 };
 
-const MODEL_CANDIDATES = ['gemini-2.5-flash', 'gemini-2.0-flash'];
-const AI_TIMEOUT_MS = 7000;
 const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
 const GDACS_EVENT_MAP = {
@@ -188,10 +185,6 @@ function gdacsSeverity(level = '') {
   if (level === 'Red') return 'high';
   if (level === 'Orange') return 'medium';
   return 'normal';
-}
-
-function isMostlyThai(text = '') {
-  return /[\u0E00-\u0E7F]/.test(text);
 }
 
 function isEnsoRelated(text = '') {
@@ -702,89 +695,10 @@ async function fetchClimateNews() {
   return filtered;
 }
 
-function stripMarkdownJson(text = '') {
-  return text
-    .replace(/^```(?:json)?\s*\n?/m, '')
-    .replace(/\n?\s*```\s*$/m, '')
-    .trim();
-}
-
-async function withTimeout(promise, timeoutMs, label = 'operation') {
-  let timeoutId;
-  const timeoutPromise = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
-  });
-
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-async function maybeTranslateItems(items) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  const targets = items.filter((item) => !isMostlyThai(item.title) || !isMostlyThai(item.summary || ''));
-  if (!targets.length) return items;
-
-  if (!apiKey) {
-    return items.map((item) => ({
-      ...item,
-      title: translateStaticText(item.title || ''),
-      summary: translateStaticText(item.summary || ''),
-    }));
-  }
-
-  const payload = targets.map((item, index) => ({
-    index,
-    title: item.title || '',
-    summary: (item.summary || '').slice(0, 200),
-    eventLabel: item.eventLabel || '',
-    country: item.country || '',
-    status: item.status || '',
-  }));
-
-  const prompt = [
-    'แปลข่าวภัยพิบัติ สภาพอากาศ และภูมิอากาศต่อไปนี้เป็นภาษาไทยสำหรับผู้ใช้ทั่วไป',
-    'ตอบเป็น JSON array เท่านั้น (ไม่ต้องมี markdown) โดยคงลำดับเดิมและใช้รูปแบบ [{"index":0,"title":"...","summary":"..."}]',
-    'แปลให้กระชับ อ่านง่าย เข้าใจง่าย และห้ามเติมข้อมูลใหม่',
-    'ชื่อเฉพาะ เช่น El Niño ให้แปลว่า เอลนีโญ่, La Niña ให้แปลว่า ลานีญ่า',
-    JSON.stringify(payload),
-  ].join('\n');
-
-  const client = new GoogleGenerativeAI(apiKey);
-
-  for (const model of MODEL_CANDIDATES) {
-    try {
-      const result = await withTimeout(
-        client.getGenerativeModel({ model }).generateContent(prompt),
-        AI_TIMEOUT_MS,
-        `AI translation (${model})`,
-      );
-      const raw = result.response.text()?.trim();
-      const text = stripMarkdownJson(raw);
-      const parsed = JSON.parse(text);
-      if (!Array.isArray(parsed)) continue;
-
-      const translatedByIndex = new Map(parsed.map((entry) => [entry.index, entry]));
-
-      return items.map((item) => {
-        const targetIndex = targets.indexOf(item);
-        if (targetIndex === -1) return item;
-        const translated = translatedByIndex.get(targetIndex);
-        return {
-          ...item,
-          title: translated?.title?.trim() || translateStaticText(item.title || ''),
-          summary: translated?.summary?.trim() || translateStaticText(item.summary || ''),
-        };
-      });
-    } catch (error) {
-      console.error(`AI translation failed on ${model}:`, error.message || error);
-    }
-  }
-
-  return items.map((item) => ({
-    ...item,
+// Keep official warning delivery independent of optional model availability.
+// This local glossary changes known terms only; original names/details remain.
+function translateSourceItems(items) {
+  return items.map(item => ({ ...item,
     title: translateStaticText(item.title || ''),
     summary: translateStaticText(item.summary || ''),
   }));
@@ -823,44 +737,6 @@ function buildDigest({ weather, thaiWarnings, thaiStorms, gdacs, usgs, thaiDisas
     bullets: bullets.slice(0, 5),
   };
 }
-
-async function maybeGenerateAiSummary(payload) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-
-  const prompt = [
-    'สรุปข่าวอากาศและภัยพิบัติเป็นภาษาไทยแบบกระชับ ใช้งานจริง อ่านง่าย สำหรับหน้า dashboard',
-    'ตอบเป็น JSON เท่านั้น (ไม่ต้องมี markdown) ในรูปแบบ {"headline":"...","bullets":["..."]}',
-    'headline 1 ประโยค bullets 3-5 ข้อ และห้ามแต่งข้อมูลเกินชุดข้อมูลที่ให้',
-    JSON.stringify(payload),
-  ].join('\n');
-
-  const client = new GoogleGenerativeAI(apiKey);
-
-  for (const model of MODEL_CANDIDATES) {
-    try {
-      const result = await withTimeout(
-        client.getGenerativeModel({ model }).generateContent(prompt),
-        AI_TIMEOUT_MS,
-        `AI digest (${model})`,
-      );
-      const raw = result.response.text()?.trim();
-      const text = stripMarkdownJson(raw);
-      const parsed = JSON.parse(text);
-      if (parsed?.headline && Array.isArray(parsed?.bullets)) {
-        return {
-          headline: parsed.headline,
-          bullets: parsed.bullets.filter(Boolean).slice(0, 5),
-        };
-      }
-    } catch (error) {
-      console.error(`AI news summary failed on ${model}:`, error.message || error);
-    }
-  }
-
-  return null;
-}
-
 
 function topicFromItem(item = {}) {
   const text = `${item.category || ''} ${item.eventType || ''} ${item.title || ''} ${item.summary || ''} ${item.rawSummary || ''}`.toLowerCase();
@@ -1763,22 +1639,8 @@ export default async function handler(req, res) {
     ...usgsRegionalRaw.map((item) => ({ ...item, _batch: 'usgsRegional' })),
   ];
 
-  // AI summary input uses raw (pre-translation) global titles — AI handles both Thai and English
-  const aiSummaryInput = {
-    weather: weather.summary,
-    thaiWarnings: thaiWarnings.slice(0, 4).map((item) => item.title),
-    thaiStorms: thaiStorms.slice(0, 3).map((item) => item.title),
-    thaiDisasters: thaiDisasters.slice(0, 4).map((item) => item.title),
-    globalAlerts: gdacsRaw.slice(0, 4).map((item) => `${item.eventLabel || ''} ${item.country || ''} ${item.title}`.trim()),
-    earthquakes: usgsRaw.slice(0, 4).map((item) => item.title),
-    climate: [],
-  };
-
-  // Run translation and AI summary in parallel — saves ~7 seconds vs sequential
-  const [allGlobalTranslated, aiDigest] = await Promise.all([
-    maybeTranslateItems(allGlobalRaw),
-    maybeGenerateAiSummary(aiSummaryInput),
-  ]);
+  // Deliver source-verified warnings immediately after provider collection.
+  const allGlobalTranslated = translateSourceItems(allGlobalRaw);
 
   const withoutBatch = (item) => {
     const clean = { ...item };
@@ -1838,9 +1700,7 @@ export default async function handler(req, res) {
     sourceStatus,
   });
 
-  const digest = aiDigest
-    ? { ...deterministicDigest, headline: aiDigest.headline, bullets: aiDigest.bullets, mode: 'ai' }
-    : { ...deterministicDigest, mode: 'rule-based' };
+  const digest = { ...deterministicDigest, mode: 'rule-based' };
 
   const events = buildNewsEvents([
     ...topStories,

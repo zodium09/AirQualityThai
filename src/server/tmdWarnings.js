@@ -56,5 +56,15 @@ export async function fetchTmdWarnings(listHtml, fetchText, now = Date.now()) {
   const cards = tmdWarningLinks(listHtml);
   const results = await Promise.allSettled(cards.map(async card => parseTmdWarningDetail(await fetchText(card.url), card, now)));
   if (results.length && results.every(result => result.status === 'rejected')) throw new Error('Unable to verify TMD warning issue dates');
-  return results.flatMap(result => result.status === 'fulfilled' && result.value ? [result.value] : []);
+  const latest = new Map();
+  for (const item of results.flatMap(result => result.status === 'fulfilled' && result.value ? [result.value] : [])) {
+    // Consecutive numbered bulletins for the same affected period are updates
+    // to one warning, not separate incidents. Keep unrelated warnings intact.
+    const base = item.title.replace(/\s*ฉบับที่\s*\d+\s*(?:\([^)]*\))?\s*$/, '').trim();
+    const key = base !== item.title && item.validFrom && item.validTo
+      ? JSON.stringify([base, item.validFrom, item.validTo]) : item.url;
+    const previous = latest.get(key);
+    if (!previous || Date.parse(item.issuedAt) > Date.parse(previous.issuedAt)) latest.set(key, item);
+  }
+  return [...latest.values()].sort((a, b) => Date.parse(b.issuedAt) - Date.parse(a.issuedAt));
 }
