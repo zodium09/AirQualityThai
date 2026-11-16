@@ -1,3 +1,5 @@
+import { observationFetch } from './observationFetch.js';
+
 // These feeds contain station observations, never model forecasts.
 // References and live-probe details are recorded in docs/data-sources.md.
 export const OBSERVATION_SOURCES = {
@@ -103,7 +105,7 @@ export function selectObservation(rows, coordinates, type, now = Date.now()) {
     selection: 'nearest-reporting-station', representativeOfRequestedPoint: false, farFromLocation: distance > 50 };
 }
 
-export function createObservationService({ fetcher = fetch, clock = Date.now, env = {} } = {}) {
+export function createObservationService({ fetcher = observationFetch, clock = Date.now, env = {} } = {}) {
   const cache = new Map();
   const pending = new Map();
   // api/api12345 is a published public TMD example, not a private credential.
