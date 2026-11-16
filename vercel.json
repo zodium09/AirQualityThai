@@ -7,7 +7,6 @@
     "api/weather-history.js": { "maxDuration": 30 },
     "api/statistics.js": { "maxDuration": 30 },
     "api/observations.js": { "maxDuration": 30 },
-    "api/mountain-outlook.js": { "maxDuration": 30 },
     "api/radar.js": { "maxDuration": 30 },
     "api/cron-history.js": { "maxDuration": 30 }
   },
@@ -44,6 +43,10 @@
     }
   ],
   "rewrites": [
+    {
+      "source": "/api/mountain-outlook",
+      "destination": "/api/observations?view=mountain"
+    },
     {
       "source": "/api/(.*)",
       "destination": "/api/$1"
