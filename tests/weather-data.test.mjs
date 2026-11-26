@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { finiteOrNull, forecastUrls, normalizeForecast, weatherDate, thaiTime, getWeatherVisual } from '../src/utils/weatherData.js';
+import { finiteOrNull, forecastUrls, normalizeForecast, weatherDate, thaiTime, thaiWindDirection, getWeatherVisual } from '../src/utils/weatherData.js';
 import { dailyAirMax, providerSlots } from '../src/server/providerData.js';
 import { fetchNationalForecast } from '../src/server/nationalForecast.js';
 import { unavailableWeather } from '../api/weather-data.js';
@@ -72,4 +72,14 @@ test('national fallback survives one failed batch and separate air failure', asy
   assert.equal(result.stationTemps.PROV_40.temp, 26);
   assert.equal(result.stationTemps.PROV_40.rainProb, 0);
   assert.equal(result.stations[40].AQILast.PM25.value, null);
+});
+test('thaiWindDirection maps degrees to Thai 8-point compass and preserves missing', () => {
+  assert.equal(thaiWindDirection(0), 'เหนือ (0°)');
+  assert.equal(thaiWindDirection(45), 'ตะวันออกเฉียงเหนือ (45°)');
+  assert.equal(thaiWindDirection(135), 'ตะวันออกเฉียงใต้ (135°)');
+  assert.equal(thaiWindDirection(270), 'ตะวันตก (270°)');
+  assert.equal(thaiWindDirection(360), 'เหนือ (0°)');
+  assert.equal(thaiWindDirection(-90), 'ตะวันตก (270°)');
+  assert.equal(thaiWindDirection(null), '—');
+  assert.equal(thaiWindDirection(''), '—');
 });

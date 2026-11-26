@@ -11,6 +11,7 @@ import {
   Search,
   ShieldAlert,
   Waves,
+  X,
 } from 'lucide-react';
 
 const CACHE_KEY = 'air4thai-news-v3-cache';
@@ -174,6 +175,12 @@ export default function NewsPage() {
   }, [activeCategory, items, query]);
 
   const highCount = items.filter((item) => item.severity === 'high').length;
+  const categoryCounts = useMemo(() => Object.fromEntries(categories.map((category) => [
+    category.id,
+    category.id === 'all'
+      ? items.length
+      : items.filter((item) => category.topics.some(topic => item.topic.includes(topic) || item.category.includes(topic))).length,
+  ])), [items]);
   const priority = filtered[0];
   const remaining = filtered.slice(1);
   const ensoSummary = getEnsoSummary(enso, now);
@@ -220,13 +227,18 @@ export default function NewsPage() {
             <Search aria-hidden="true" size={18} />
             <span className="sr-only">ค้นหาประกาศ</span>
             <input onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาเหตุการณ์หรือจังหวัด" type="search" value={query} />
+            {query && (
+              <button aria-label="ล้างคำค้น" className="search-clear" onClick={() => setQuery('')} type="button">
+                <X aria-hidden="true" size={16} />
+              </button>
+            )}
           </label>
           <div className="filter-row" role="group" aria-label="ประเภทประกาศ">
             {categories.map((category) => {
               const Icon = category.icon;
               return (
                 <button aria-pressed={activeCategory === category.id} className={activeCategory === category.id ? 'is-active' : ''} key={category.id} onClick={() => setActiveCategory(category.id)} type="button">
-                  <Icon aria-hidden="true" size={15} /> {category.label}
+                  <Icon aria-hidden="true" size={15} /> {category.label} <span className="filter-count">{categoryCounts[category.id] ?? 0}</span>
                 </button>
               );
             })}
@@ -256,6 +268,11 @@ export default function NewsPage() {
             <BellRing aria-hidden="true" size={25} />
             <h2>{error || feedStatus.incomplete ? 'ยังยืนยันประกาศที่ตรงกับตัวกรองไม่ได้' : 'ยังไม่มีประกาศที่ตรงกับตัวกรอง'}</h2>
             <p>ลองเลือก “ทั้งหมด” หรือตรวจจากต้นทาง · การไม่มีรายการไม่ได้ยืนยันว่าพื้นที่ปลอดภัย</p>
+            {(activeCategory !== 'all' || query.trim()) && items.length > 0 && (
+              <button className="wx-button wx-button--quiet empty-state__reset" onClick={() => { setActiveCategory('all'); setQuery(''); }} type="button">
+                แสดงประกาศทั้งหมด
+              </button>
+            )}
           </section>
         )}
 
@@ -303,7 +320,10 @@ export default function NewsPage() {
           <div>
             <details>
               <summary>สถานะแหล่งข้อมูล · ยืนยันรายการได้ {feedStatus.available} / {feedStatus.total} แหล่ง</summary>
-              <ul>{feedStatus.sources.map(source => <li key={source.label}>{source.label}: {source.status === 'ok' ? 'มีรายการจากต้นทาง' : source.status === 'partial' ? 'อ่านได้บางส่วน' : source.status === 'empty' ? 'ไม่มีรายการที่ยืนยันวันและความใหม่ได้' : 'เชื่อมต่อไม่ได้'} ({source.count || 0} รายการ)</li>)}</ul>
+              <ul>{feedStatus.sources.map((source, index) => {
+                const label = source.label || source.source || 'แหล่งข้อมูล';
+                return <li key={`${label}-${index}`}>{label}: {source.status === 'ok' ? 'มีรายการจากต้นทาง' : source.status === 'partial' ? 'อ่านได้บางส่วน' : source.status === 'empty' ? 'ไม่มีรายการที่ยืนยันวันและความใหม่ได้' : 'เชื่อมต่อไม่ได้'} ({source.count || 0} รายการ)</li>;
+              })}</ul>
             </details>
             <p>ตรวจประกาศเพิ่มเติม: <a href="https://www.tmd.go.th/warning-and-events/warning-storm" target="_blank" rel="noreferrer">กรมอุตุนิยมวิทยา</a> · <a href="https://www.disaster.go.th/" target="_blank" rel="noreferrer">ปภ.</a></p>
           </div>

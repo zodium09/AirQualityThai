@@ -81,6 +81,16 @@ export function displayValue(value, unit = '', digits = 0) {
   return number === null ? '—' : `${new Intl.NumberFormat('th-TH', { maximumFractionDigits: digits }).format(number)}${unit}`;
 }
 
+const WIND_DIRECTIONS_TH = ['เหนือ', 'ตะวันออกเฉียงเหนือ', 'ตะวันออก', 'ตะวันออกเฉียงใต้', 'ใต้', 'ตะวันตกเฉียงใต้', 'ตะวันตก', 'ตะวันตกเฉียงเหนือ'];
+
+export function thaiWindDirection(degrees) {
+  const number = finiteOrNull(degrees);
+  if (number === null) return '—';
+  const normalized = ((number % 360) + 360) % 360;
+  const dir = WIND_DIRECTIONS_TH[Math.round(normalized / 45) % 8];
+  return `${dir} (${Math.round(normalized)}°)`;
+}
+
 export function getWeatherVisual(code, isDay = true) {
   const value = finiteOrNull(code);
   if (value === null) return { icon: 'unknown', label: 'ยังไม่มีข้อมูลสภาพท้องฟ้า' };

@@ -1,12 +1,13 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { geoJSON as leafletGeoJSON } from 'leaflet';
 import { CircleMarker, GeoJSON, MapContainer, TileLayer, useMap } from 'react-leaflet';
-import { CloudRain, Download, Gauge, Hand, Monitor, RefreshCw, Search, Thermometer, Wind } from 'lucide-react';
+import { CloudRain, Download, Gauge, Hand, Monitor, RefreshCw, Search, Thermometer, Wind, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import 'leaflet/dist/leaflet.css';
 import LoadingScreen from '../components/LoadingScreen';
 import { WeatherContext } from '../context/WeatherContext';
 import { displayValue, thaiTime } from '../utils/weatherData';
-import { formatRiskValue, riskLevel } from '../utils/riskScale';
+import { formatRiskValue, riskLevel, riskMapColors } from '../utils/riskScale';
 import { mapReading } from '../utils/mapReadings';
 import RiskValue, { RiskLegend } from '../components/RiskValue';
 
@@ -23,6 +24,7 @@ function metricRisk(metric, value, stale = false) {
   return riskLevel(metric.startsWith('temp') ? 'temperature' : metric === 'wind' ? 'gust' : metric === 'pmHour' ? 'pm25' : metric, value, { stale, hours: ['rain', 'pm25'].includes(metric) ? 24 : null });
 }
 function getMetricTone(metric, value, stale = false) { return metricRisk(metric, value, stale).color; }
+function getMetricFill(metric, value, stale = false) { return riskMapColors[metricRisk(metric, value, stale).tone]; }
 function getMetricStatus(metric, value, stale = false) { return metricRisk(metric, value, stale).label; }
 
 function cleanName(value = '') {
@@ -128,6 +130,7 @@ export default function MapPage() {
 
   const rowByName = useMemo(() => new Map(allRows.map((row) => [row.name, row])), [allRows]);
   const rows = useMemo(() => allRows.filter((item) => item.name.toLowerCase().includes(query.trim().toLowerCase())), [allRows, query]);
+  const staleSignature = useMemo(() => rows.map((row) => (row.stale ? '1' : '0')).join(''), [rows]);
   const ranked = useMemo(() => [...rows].sort((a, b) => { if (a.value === null || a.stale) return b.value === null || b.stale ? a.name.localeCompare(b.name, 'th') : 1; if (b.value === null || b.stale) return -1; return metric === 'tempMin' ? a.value - b.value : b.value - a.value; }), [rows, metric]);
   const availableRows = allRows.filter(row => row.value !== null && !row.stale);
   const nationalAverage = availableRows.length ? availableRows.reduce((sum, row) => sum + row.value, 0) / availableRows.length : null;
@@ -145,8 +148,8 @@ export default function MapPage() {
     const selected = selectedStation?.stationID === row?.station.stationID;
     return {
       color: selected ? '#102b64' : '#ffffff',
-      fillColor: getMetricTone(metric, row?.value ?? null, row?.stale),
-      fillOpacity: row?.value === null || row?.stale ? 0.25 : 0.62,
+      fillColor: getMetricFill(metric, row?.value ?? null, row?.stale),
+      fillOpacity: row?.value === null || row?.stale ? 0.28 : 0.7,
       opacity: 1,
       weight: selected ? 3 : 1.25,
     };
@@ -190,13 +193,14 @@ export default function MapPage() {
         </div>
         <div className="map-monitor-actions"><button className="wx-button wx-button--quiet" type="button" disabled={refreshing} onClick={refreshWeather}><RefreshCw size={16} className={refreshing ? 'is-spinning' : ''} /> อัปเดต</button><button className="wx-button wx-button--quiet" type="button" onClick={exportCsv}><Download size={16} /> CSV</button><button className="wx-button wx-button--quiet" type="button" aria-pressed={monitor} onClick={() => setMonitor(!monitor)}><Monitor size={16} /> {monitor ? 'มุมมองปกติ' : 'มอนิเตอร์'}</button><button className="wx-button wx-button--quiet" type="button" onClick={showCountry}>ดูทั้งประเทศ</button></div>
       </div>
-      <div className="map-data-status"><span>มีข้อมูล{meta.label} {availableRows.length} / {allRows.length} จังหวัด · ข้อมูลเก่าหรือไม่พร้อมแสดงสีเทา</span><span>รีเฟรชอัตโนมัติทุก 10 นาที · {meta.unit}</span></div>
+      <div className="map-data-status"><span>มีข้อมูล {meta.label} · {availableRows.length} / {allRows.length} จังหวัด · ข้อมูลเก่าหรือไม่พร้อมแสดงสีเทา</span><span>รีเฟรชอัตโนมัติทุก 10 นาที · {meta.unit}</span></div>
 
       <p className="map-scope-note">สีจังหวัดใช้ค่าที่พิกัดอ้างอิงเดียว หมุดคือจุดพยากรณ์ ไม่ใช่ค่าเฉลี่ยทั้งพื้นที่ · {metric === 'rain' ? 'ฝนพยากรณ์สะสมวันนี้ 00:00–24:00 น.' : metric === 'pm25' ? 'CAMS เฉลี่ยครบ 24 ชั่วโมง · สีเทียบเกณฑ์ความเข้มข้น ไม่ใช่ AQI ทางการ' : metric === 'pmHour' ? 'CAMS รายชั่วโมง · ไม่ใช้เกณฑ์เฉลี่ย 24 ชั่วโมง' : 'ค่าจากแบบจำลองตามพิกัด · เวลาไทย'}</p><RiskLegend />
       <div className="map-workspace">
         <aside className="map-sidebar">
           <div className="map-summary"><span className="map-summary__icon"><MetricIcon aria-hidden="true" size={20} /></span><div><small>เฉลี่ยจุดอ้างอิงที่มีข้อมูลใหม่</small><strong>{displayValue(nationalAverage, '', 1)} <span>{meta.unit}</span></strong></div></div>
-          <label className="search-field"><Search aria-hidden="true" size={18} /><span className="sr-only">ค้นหาจังหวัด</span><input onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาจังหวัด" type="search" value={query} /></label>
+          <label className="search-field"><Search aria-hidden="true" size={18} /><span className="sr-only">ค้นหาจังหวัด</span><input onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาจังหวัด" type="search" value={query} />{query && <button type="button" className="search-clear" aria-label="ล้างคำค้น" onClick={() => setQuery('')}><X aria-hidden="true" size={16} /></button>}</label>
+          {query.trim() && <p className="map-search-count">พบ {ranked.length} จังหวัด</p>}
           <div className="province-list">
             {ranked.map(({ station, name, value, stale, validAt, riskMetric, hours }, index) => <button className={`province-row${selectedStation?.stationID === station.stationID ? ' is-selected' : ''}`} key={station.stationID} onClick={() => selectProvince(station)} aria-pressed={selectedStationId === station.stationID} type="button"><span className="province-row__rank">{value === null || stale ? '–' : index + 1}</span><span className="province-row__name"><strong>{name}</strong><small>{getMetricStatus(metric, value, stale)}</small><small>{thaiTime(validAt, { day: 'numeric', month: 'short' })}</small></span><span className="province-row__value"><RiskValue metric={riskMetric} value={value} hours={hours} stale={stale} /> <small>{meta.unit}</small></span></button>)}
             {!ranked.length && <div className="empty-inline">ไม่พบจังหวัดที่ตรงกับคำค้น</div>}
@@ -204,18 +208,18 @@ export default function MapPage() {
         </aside>
 
         <section ref={mapCanvas} tabIndex={-1} aria-label={`แผนที่${meta.label}ทั่วประเทศไทย`} className={`map-canvas${mapInteractive ? ' is-interactive' : ''}`}>
-          {selectedRow && <div className="map-selection" role="status"><strong>{selectedRow.name} · <RiskValue metric={selectedRow.riskMetric} value={selectedRow.value} hours={selectedRow.hours} stale={selectedRow.stale} unit={` ${meta.unit}`} /></strong><span>{meta.label} · {getMetricStatus(metric, selectedRow.value, selectedRow.stale)}</span><a href={`/?province=${encodeURIComponent(selectedRow.name)}`}>ดูพยากรณ์จังหวัดนี้</a></div>}
+          {selectedRow && <div className="map-selection" role="status"><div className="map-selection__head"><strong>{selectedRow.name} · <RiskValue metric={selectedRow.riskMetric} value={selectedRow.value} hours={selectedRow.hours} stale={selectedRow.stale} unit={` ${meta.unit}`} /></strong><button type="button" className="map-selection__close" aria-label="ปิดรายละเอียดจังหวัด" onClick={() => setSelectedStationId(null)}><X size={16} aria-hidden="true" /></button></div><span>{meta.label} · {getMetricStatus(metric, selectedRow.value, selectedRow.stale)}</span><div className="map-selection__links"><Link to={`/?province=${encodeURIComponent(selectedRow.name)}`}>ดูพยากรณ์จังหวัดนี้</Link><Link to={`/stats?province=${encodeURIComponent(selectedRow.name)}`}>ดูสถิติย้อนหลัง</Link></div></div>}
           <MapContainer center={[13.2, 101.1]} maxBounds={[[3.5, 92], [23, 110]]} minZoom={4} zoomSnap={0.25} scrollWheelZoom={false} zoom={5}>
             <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <MapOverview bounds={countryBounds} selected={Boolean(selectedStation)} resetVersion={overviewVersion} />
             <MapFocus station={selectedStation} />
             {rows.map(row => <CircleMarker key={row.station.stationID} center={[Number(row.station.lat), Number(row.station.long)]} radius={selectedStation?.stationID === row.station.stationID ? 6 : 2.5} pathOptions={{ color: '#17344f', fillColor: '#fff', fillOpacity: 1, weight: 1 }} interactive={false} />)}
             <MapInteraction enabled={!compact || mapInteractive} />
-            {visibleGeoData && <GeoJSON data={visibleGeoData} key={`${metric}-${query}-${lastUpdated}-${Math.floor(now / 60000)}`} onEachFeature={bindFeature} style={featureStyle} />}
+            {visibleGeoData && <GeoJSON data={visibleGeoData} key={`${metric}-${query}-${lastUpdated}-${staleSignature}`} onEachFeature={bindFeature} style={featureStyle} />}
           </MapContainer>
           {compact && !mapInteractive && <button className="map-touch-gate" onClick={() => setMapInteractive(true)} type="button"><Hand aria-hidden="true" size={18} /> แตะเพื่อเลื่อนและซูมแผนที่</button>}
           {compact && mapInteractive && <button className="map-touch-exit" onClick={() => setMapInteractive(false)} type="button">เลื่อนหน้าต่อ</button>}
-          <div className="map-legend" aria-label={`คำอธิบายสี ${meta.unit}`}>{legendValues.map((v, i) => <span key={v}><i style={{ background: getMetricTone(metric, v) }} /> {legendLabels[i]}</span>)}<span><i style={{ background: getMetricTone(metric, null) }} /> เก่า / ไม่พร้อม</span></div>
+          <div className="map-legend" aria-label={`คำอธิบายสี ${meta.unit}`}>{legendValues.map((v, i) => <span key={v}><i style={{ background: getMetricFill(metric, v) }} /> {legendLabels[i]}</span>)}<span><i style={{ background: getMetricFill(metric, null) }} /> เก่า / ไม่พร้อม</span></div>
         </section>
       </div>
     </div>

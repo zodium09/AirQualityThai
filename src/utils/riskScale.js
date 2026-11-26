@@ -2,6 +2,7 @@ import { displayValue, finiteOrNull } from './weatherData.js';
 
 // Concentration bands require a complete 24-hour mean. Never apply them to hourly PM.
 export const riskColors = { unknown: '#536579', info: '#155fa0', low: '#166534', cool: '#075985', watch: '#92400e', high: '#9a3412', danger: '#b91c1c', extreme: '#6b21a8' };
+export const riskMapColors = { unknown: '#8d9fb2', info: '#2580e6', low: '#22a055', cool: '#0891b2', watch: '#eab308', high: '#f97316', danger: '#dc2626', extreme: '#9333ea' };
 const result = (tone, label) => ({ tone, label, color: riskColors[tone] });
 export function riskLevel(metric, input, { stale = false, hours = null } = {}) {
   const value = finiteOrNull(input);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, LocateFixed, RadioTower, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LocateFixed, Pause, Play, RadioTower, RefreshCw } from 'lucide-react';
 import { CircleMarker, MapContainer, TileLayer, Tooltip } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { thaiTime } from '../utils/weatherData';
@@ -16,6 +16,7 @@ export default function RainNowcast({ coords, locationLabel, onSummaryChange, on
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [frameIndex, setFrameIndex] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const [tileError, setTileError] = useState(false);
   const [now, setNow] = useState(Date.now);
   const activeRequest = useRef(null);
@@ -29,6 +30,7 @@ export default function RainNowcast({ coords, locationLabel, onSummaryChange, on
     const controller = new AbortController();
     activeRequest.current = controller;
     lastAttempt.current = Date.now();
+    setPlaying(false);
     setLoading(true);
     setError('');
     summaryCallback.current?.({ label: 'กำลังโหลดภาพเรดาร์', tone: 'loading' });
@@ -75,7 +77,18 @@ export default function RainNowcast({ coords, locationLabel, onSummaryChange, on
   const frame = frames[frameIndex];
   const stale = data?.stale || !data?.radarTime || now - Date.parse(data.radarTime) > 30 * 60 * 1000;
   const unavailable = data?.unavailable || !frames.length;
-  const selectFrame = index => { setFrameIndex(index); setTileError(false); };
+  const isPlaying = playing && frames.length > 1 && !unavailable;
+  const coverage = coverageLabels[data?.coverage] ? data.coverage : 'unknown';
+  const selectFrame = index => { setPlaying(false); setFrameIndex(index); setTileError(false); };
+
+  useEffect(() => {
+    if (!isPlaying) return undefined;
+    const timer = window.setInterval(() => {
+      setTileError(false);
+      setFrameIndex(prev => (prev + 1) % frames.length);
+    }, 850);
+    return () => window.clearInterval(timer);
+  }, [isPlaying, frames.length]);
 
   return <section aria-labelledby="rain-nowcast-title" className={`nowcast-card nowcast-card--${error || stale || unavailable ? 'fallback' : 'watch'}`}>
     <div className="nowcast-card__top">
@@ -84,7 +97,10 @@ export default function RainNowcast({ coords, locationLabel, onSummaryChange, on
     </div>
     {error && <p className="nowcast-card__error" role="status">{error}</p>}
     {loading && !data ? <p role="status">กำลังโหลดภาพเรดาร์และขอบเขตครอบคลุม</p> : unavailable ? <p className="nowcast-card__error" role="status">ยังไม่มีภาพเรดาร์ที่ตรวจสอบเวลาได้ จึงสรุปไม่ได้ว่าจุดนี้มีฝนหรือไม่มีฝน</p> : <>
-      <p role="status">{stale ? 'ภาพล่าสุดเกิน 30 นาที โปรดตรวจเวลา' : 'ภาพเรดาร์ย้อนหลังพร้อมเวลาเฟรม'} · {coverageLabels[data?.coverage] || coverageLabels.unknown}</p>
+      <div className="radar-status-row" role="status">
+        <span>{stale ? 'ภาพล่าสุดเกิน 30 นาที โปรดตรวจเวลา' : 'ภาพเรดาร์ย้อนหลังพร้อมเวลาเฟรม'}</span>
+        <span className={`radar-coverage radar-coverage--${coverage}`}>{coverageLabels[coverage]}</span>
+      </div>
       <div className="radar-history-image" role="region" aria-label={`แผนที่เรดาร์ย้อนหลัง ${locationLabel}`}>
         <MapContainer key={`${requestBody.lat}:${requestBody.lon}`} center={[requestBody.lat, requestBody.lon]} zoom={7} minZoom={4} maxZoom={7} scrollWheelZoom={false} style={{ height: '100%', minHeight: 300, width: '100%' }}>
           <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -96,7 +112,7 @@ export default function RainNowcast({ coords, locationLabel, onSummaryChange, on
       <div className="radar-history-controls">
         <label htmlFor="radar-history-time">เวลาเฟรมภาพ {thaiTime(frame?.time, { day: 'numeric', month: 'short' })} น.</label>
         <input id="radar-history-time" type="range" min={0} max={Math.max(0, frames.length - 1)} step={1} value={frameIndex} disabled={frames.length < 2} aria-valuetext={`เวลาเฟรมภาพ ${thaiTime(frame?.time)}`} onChange={event => selectFrame(Number(event.target.value))} />
-        <div><button className="button button--quiet button--compact" type="button" disabled={frameIndex <= 0} onClick={() => selectFrame(frameIndex - 1)}><ChevronLeft aria-hidden="true" size={16} /> ก่อนหน้า</button><span>{frameIndex + 1} / {frames.length} ภาพ</span><button className="button button--quiet button--compact" type="button" disabled={frameIndex >= frames.length - 1} onClick={() => selectFrame(frameIndex + 1)}>ถัดไป <ChevronRight aria-hidden="true" size={16} /></button></div>
+        <div className="radar-play-group"><button className="button button--quiet button--compact" type="button" disabled={frames.length < 2} aria-pressed={isPlaying} onClick={() => setPlaying(prev => !prev)}>{isPlaying ? <Pause aria-hidden="true" size={16} /> : <Play aria-hidden="true" size={16} />} {isPlaying ? 'หยุด' : 'เล่น'}</button><button className="button button--quiet button--compact" type="button" disabled={frameIndex <= 0} onClick={() => selectFrame(frameIndex - 1)}><ChevronLeft aria-hidden="true" size={16} /> ก่อนหน้า</button><span>{frameIndex + 1} / {frames.length} ภาพ</span><button className="button button--quiet button--compact" type="button" disabled={frameIndex >= frames.length - 1} onClick={() => selectFrame(frameIndex + 1)}>ถัดไป <ChevronRight aria-hidden="true" size={16} /></button></div>
       </div>
       <p className="wx-footnote">วงกลมคือพิกัดที่เลือก สีภาพเป็นสัญญาณเรดาร์จากผู้ให้บริการ เวลาเฟรมเป็นเวลาประกอบภาพซึ่งอาจรวมสถานีต่างเวลา พื้นที่ว่างหรือข้อมูลไม่ครบไม่ยืนยันว่าไม่มีฝน</p>
     </>}

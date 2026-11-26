@@ -63,7 +63,8 @@ export function normalizeNewsDisplayItem(item, index = 0) {
   const topicHint = `${item?.topic || ''} ${item?.eventType || ''} ${item?.category || ''} ${item?.title || ''} ${item?.summary || item?.description || ''}`.toLowerCase();
   const topic = /earthquake|quake|แผ่นดินไหว/.test(topicHint) ? 'earthquake'
     : /wildfire|fire|ไฟป่า/.test(topicHint) ? 'fire'
-      : /storm|cyclone|hurricane|typhoon|พายุ/.test(topicHint) ? 'storm'
+      : /pm2\.?5|aqi|haze|smoke|dust|ฝุ่น|หมอกควัน/.test(topicHint) ? 'air'
+        : /storm|cyclone|hurricane|typhoon|พายุ/.test(topicHint) ? 'storm'
         : /flood|น้ำท่วม/.test(topicHint) ? 'flood'
           : /volcano|ภูเขาไฟ/.test(topicHint) ? 'volcano'
             : /drought|ภัยแล้ง/.test(topicHint) ? 'drought'

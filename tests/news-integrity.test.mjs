@@ -14,6 +14,11 @@ test('official heavy-rain bulletins retain both their rain topic and warning cat
   const [event] = buildNewsEvents([bulletin]);
   assert.equal(normalizeNewsDisplayItem(event).category, 'warning');
 });
+
+test('air-quality and haze bulletins map to the air topic for fire-air filtering', () => {
+  assert.equal(normalizeNewsDisplayItem({ title: 'ค่าฝุ่น PM2.5 เกินมาตรฐานในภาคเหนือ', source: 'TMD', scope: 'thailand' }).topic, 'air');
+  assert.equal(normalizeNewsDisplayItem({ title: 'Regional smoke and haze advisory', source: 'GDACS', scope: 'global' }).topic, 'air');
+});
 const datedDiscussion = text => `12 November 2026 ENSO Alert System Status: ${text}`;
 
 test('neutral current conditions never become El Niño from an outlook or IRI mention', () => {

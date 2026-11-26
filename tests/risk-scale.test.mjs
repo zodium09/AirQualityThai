@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatRiskValue, riskLevel } from '../src/utils/riskScale.js';
+import { formatRiskValue, riskLevel, riskMapColors } from '../src/utils/riskScale.js';
 
 test('missing and stale readings never imply a safe or live level', () => {
   for (const value of [null, undefined, '', NaN, false]) assert.equal(riskLevel('rain', value, { hours: 24 }).tone, 'unknown');
@@ -45,4 +45,12 @@ test('ordinary values stay concise and very close category boundaries use explic
   assert.equal(formatRiskValue('rain', 35.00004, { hours: 24, unit: ' มม.' }), '>35 มม.');
   assert.equal(formatRiskValue('rain', null, { unit: ' มม.' }), '—');
   assert.equal(formatRiskValue('pm25', -1, { hours: 24 }), '—');
+});
+
+test('riskMapColors defines all 8 tones and separates watch, high, and danger fills', () => {
+  for (const tone of ['unknown', 'info', 'low', 'cool', 'watch', 'high', 'danger', 'extreme']) {
+    assert.match(riskMapColors[tone], /^#[0-9a-f]{6}$/i);
+  }
+  assert.notEqual(riskMapColors.watch, riskMapColors.high);
+  assert.notEqual(riskMapColors.high, riskMapColors.danger);
 });

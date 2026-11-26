@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { BarChart3, CloudRain, Gauge, LoaderCircle, ThermometerSun, TrendingDown, TrendingUp } from 'lucide-react';
+import { BarChart3, CloudRain, Download, Gauge, LoaderCircle, ThermometerSun, TrendingDown, TrendingUp } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { provinces77 } from '../provinces77';
 import { mountainPlaces } from '../data/mountainPlaces';
 import RiskValue, { RiskLegend } from '../components/RiskValue';
-import { finiteOrNull, weatherDate, BANGKOK } from '../utils/weatherData';
+import { displayValue, finiteOrNull, weatherDate, BANGKOK } from '../utils/weatherData';
 
 const LOCATION_KEY = 'air4thai.selectedProvince';
 const metrics = {
@@ -30,15 +31,31 @@ function formatShortDate(value) {
 }
 
 export default function StatsPage() {
-  const [province, setProvince] = useState(() => cleanName(localStorage.getItem(LOCATION_KEY) || 'กรุงเทพมหานคร'));
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sortedStations = useMemo(() => [...provinces77.map(p => ({ stationID: p.n, areaTH: p.n, lat: p.lat, long: p.lon, group: 'province' })), ...mountainPlaces.map(p => ({ stationID: p.id, areaTH: p.name, lat: p.lat, long: p.lon, elevation: p.elevation, group: 'mountain' }))].sort((a, b) => a.areaTH.localeCompare(b.areaTH, 'th')), []);
+  const requestedProvince = searchParams.get('province');
+  const [province, setProvince] = useState(() => {
+    const requested = requestedProvince ? cleanName(requestedProvince) : '';
+    if (requested && sortedStations.some(item => cleanName(item.areaTH) === requested)) return requested;
+    try { return cleanName(localStorage.getItem(LOCATION_KEY) || 'กรุงเทพมหานคร'); } catch { return 'กรุงเทพมหานคร'; }
+  });
   const [metric, setMetric] = useState('rain');
   const [period, setPeriod] = useState(30);
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
-  const sortedStations = useMemo(() => [...provinces77.map(p => ({ stationID: p.n, areaTH: p.n, lat: p.lat, long: p.lon })), ...mountainPlaces.map(p => ({ stationID: p.id, areaTH: p.name, lat: p.lat, long: p.lon, elevation: p.elevation }))].sort((a, b) => a.areaTH.localeCompare(b.areaTH, 'th')), []);
+  const provinceStations = useMemo(() => sortedStations.filter(item => item.group === 'province'), [sortedStations]);
+  const mountainStations = useMemo(() => sortedStations.filter(item => item.group === 'mountain'), [sortedStations]);
   const selectedStation = useMemo(() => sortedStations.find((item) => cleanName(item.areaTH) === cleanName(province)) || sortedStations[0], [province, sortedStations]);
+
+  useEffect(() => {
+    if (!requestedProvince) return;
+    const requested = cleanName(requestedProvince);
+    if (sortedStations.some(item => cleanName(item.areaTH) === requested)) {
+      setProvince(previous => (cleanName(previous) === requested ? previous : requested));
+    }
+  }, [requestedProvince, sortedStations]);
 
   useEffect(() => {
     if (!selectedStation) return undefined;
@@ -68,14 +85,20 @@ export default function StatsPage() {
     const previous = complete(previousRows) && complete(currentRows) ? summarize(previousRows, metric, config.aggregate) : null;
     const average = summarize(currentRows, metric, 'average');
     const values = currentRows.map((row) => finiteOrNull(row[metric])).filter(value => value !== null);
+    const max = values.length ? Math.max(...values) : null;
+    const min = values.length ? Math.min(...values) : null;
+    const maxDate = max === null ? null : currentRows.find(row => finiteOrNull(row[metric]) === max)?.date || null;
+    const minDate = min === null ? null : currentRows.find(row => finiteOrNull(row[metric]) === min)?.date || null;
     const chart = currentRows.map((row) => ({ ...row, label: formatShortDate(row.date) }));
     return {
       current,
       previous,
       average,
       difference: current !== null && previous !== null ? round(current - previous) : null,
-      max: values.length ? Math.max(...values) : null,
-      min: values.length ? Math.min(...values) : null,
+      max,
+      min,
+      maxDate,
+      minDate,
       days: values.length,
       chart,
     };
@@ -88,8 +111,24 @@ export default function StatsPage() {
     setPayload(null);
     setLoading(true);
     setError('');
+    if (searchParams.has('province')) setSearchParams({}, { replace: true });
     setProvince(event.target.value);
     try { localStorage.setItem(LOCATION_KEY, event.target.value); } catch { /* Optional preference. */ }
+  };
+
+  const exportCsv = () => {
+    if (!analysis.chart.length) return;
+    const quote = text => `"${String(text ?? '').replace(/"/g, '""').replace(/^[=+@-]/, "'")}"`;
+    const lines = [
+      ['พื้นที่', 'ละติจูด', 'ลองจิจูด', 'วันที่', 'ต่ำสุด (°C)', 'สูงสุด (°C)', 'รู้สึกสูงสุด (°C)', 'ฝน (มม.)', 'PM2.5 เฉลี่ย 24 ชม. (µg/m³)', 'ชั่วโมง PM2.5 ครบ'],
+      ...analysis.chart.map(row => [cleanName(selectedStation?.areaTH), selectedStation?.lat, selectedStation?.long, row.date, row.tempMin, row.tempMax, row.heatMax, row.rain, row.pm25, row.pm25ValidHours ?? 0]),
+    ];
+    const url = URL.createObjectURL(new Blob(['\ufeff', lines.map(row => row.map(quote).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `weather-history-${cleanName(selectedStation?.areaTH)}-${period}d.csv`;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return (
@@ -97,7 +136,10 @@ export default function StatsPage() {
       <div className="page__inner">
         <header className="stats-header">
           <div><span className="section-label">มองอดีตเพื่อวางแผนข้างหน้า</span><h1>สถิติอากาศย้อนหลัง</h1><p>ดูฝน อุณหภูมิ ความร้อน และฝุ่น พร้อมเทียบกับช่วงก่อนหน้าในมุมมองเดียว</p></div>
-          <label className="select-field stats-province"><span className="sr-only">เลือกจังหวัด</span><select onChange={handleProvince} value={province}>{sortedStations.map((station) => <option key={station.stationID} value={cleanName(station.areaTH)}>{cleanName(station.areaTH)}</option>)}</select></label>
+          <div className="stats-header-actions">
+            <label className="select-field stats-province"><span className="sr-only">เลือกจังหวัด</span><select onChange={handleProvince} value={province}><optgroup label="จังหวัด (77 จังหวัด)">{provinceStations.map((station) => <option key={station.stationID} value={cleanName(station.areaTH)}>{cleanName(station.areaTH)}</option>)}</optgroup><optgroup label="ดอยและพื้นที่สูง">{mountainStations.map((station) => <option key={station.stationID} value={cleanName(station.areaTH)}>{cleanName(station.areaTH)}</option>)}</optgroup></select></label>
+            <button className="wx-button wx-button--quiet" disabled={loading || !analysis.chart.length} onClick={exportCsv} type="button"><Download aria-hidden="true" size={16} /> CSV</button>
+          </div>
         </header>
 
         <div className="stats-controls">
@@ -113,7 +155,7 @@ export default function StatsPage() {
                 <section className="stats-kpis" aria-label="สรุปสถิติ">
                   <article className="stat-kpi stat-kpi--primary"><span>{metric === 'rain' ? 'รวมฝนเฉพาะวันที่มีข้อมูล' : `เฉลี่ย${config.label}รายวัน`}</span><strong>{analysis.current ?? '–'} <small>{config.unit}</small></strong><p>{analysis.days} วันที่มีข้อมูล / {period} วัน</p></article>
                   <article className="stat-kpi"><span>เทียบช่วงก่อนหน้า</span><strong className="stat-change">{analysis.difference === null ? '–' : <><span className="stat-change__direction">{analysis.difference === 0 ? 'เท่าเดิม' : changeUp ? 'เพิ่มขึ้น' : 'ลดลง'}</span>{analysis.difference !== 0 && <ChangeIcon aria-hidden="true" size={20} />} {Math.abs(analysis.difference)} <small>{config.unit}</small></>}</strong><p>{analysis.previous === null ? 'ข้อมูลช่วงก่อนหน้าไม่ครบ' : `ช่วงก่อนหน้า ${analysis.previous} ${config.unit}`}</p></article>
-                  <article className="stat-kpi"><span>ค่าเฉลี่ยรายวัน</span><strong>{analysis.average ?? '–'} <small>{config.unit}</small></strong><p>สูงสุด <RiskValue metric={metric.startsWith('temp') ? 'temperature' : metric === 'heatMax' ? 'apparent' : metric} value={analysis.max} hours={['rain', 'pm25'].includes(metric) ? 24 : null} /> · ต่ำสุด <RiskValue metric={metric.startsWith('temp') ? 'temperature' : metric === 'heatMax' ? 'apparent' : metric} value={analysis.min} hours={['rain', 'pm25'].includes(metric) ? 24 : null} /></p></article>
+                  <article className="stat-kpi"><span>ค่าเฉลี่ยรายวัน</span><strong>{analysis.average ?? '–'} <small>{config.unit}</small></strong><p>สูงสุด <RiskValue metric={metric.startsWith('temp') ? 'temperature' : metric === 'heatMax' ? 'apparent' : metric} value={analysis.max} hours={['rain', 'pm25'].includes(metric) ? 24 : null} />{analysis.maxDate ? ` (${formatShortDate(analysis.maxDate)})` : ''} · ต่ำสุด <RiskValue metric={metric.startsWith('temp') ? 'temperature' : metric === 'heatMax' ? 'apparent' : metric} value={analysis.min} hours={['rain', 'pm25'].includes(metric) ? 24 : null} />{analysis.minDate ? ` (${formatShortDate(analysis.minDate)})` : ''}</p></article>
                 </section>
 
                 <section className="stats-chart-card">
@@ -125,7 +167,7 @@ export default function StatsPage() {
                         <CartesianGrid stroke="var(--line)" strokeDasharray="3 5" vertical={false} />
                         <XAxis axisLine={false} dataKey="label" minTickGap={34} tick={{ fill: 'var(--muted)', fontSize: 11 }} tickLine={false} />
                         <YAxis axisLine={false} tick={{ fill: 'var(--muted)', fontSize: 11 }} tickLine={false} unit={config.unit === '°C' ? '°' : ''} />
-                        <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12 }} formatter={(value) => [`${value} ${config.unit}`, config.label]} labelFormatter={(label) => `วันที่ ${label}`} />
+                        <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, color: 'var(--ink)' }} labelStyle={{ color: 'var(--ink)', fontWeight: 600 }} itemStyle={{ color: 'var(--primary-hover)' }} formatter={(value) => [displayValue(value, ` ${config.unit}`, 1), config.label]} labelFormatter={(label) => `วันที่ ${label}`} />
                         {analysis.average !== null && <ReferenceLine stroke={config.color} strokeDasharray="5 5" y={analysis.average} />}
                         <Area dataKey={metric} fill={`url(#fill-${metric})`} isAnimationActive={false} connectNulls={false} stroke={config.color} strokeWidth={2.5} type="monotone" />
                       </AreaChart>
