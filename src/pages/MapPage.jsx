@@ -1,7 +1,7 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { geoJSON as leafletGeoJSON } from 'leaflet';
 import { CircleMarker, GeoJSON, MapContainer, TileLayer, useMap } from 'react-leaflet';
-import { CloudRain, Download, Gauge, Hand, Monitor, RefreshCw, Search, Thermometer, Wind, X } from 'lucide-react';
+import { CloudRain, Download, Gauge, Hand, Monitor, RefreshCw, Search, Thermometer, ThermometerSnowflake, ThermometerSun, Wind, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import 'leaflet/dist/leaflet.css';
 import LoadingScreen from '../components/LoadingScreen';
@@ -14,8 +14,8 @@ import RiskValue, { RiskLegend } from '../components/RiskValue';
 const metricOptions = {
   rain: { label: 'ฝนวันนี้', unit: 'มม.', icon: CloudRain },
   temp: { label: 'อุณหภูมิขณะนี้', unit: '°C', icon: Thermometer },
-  tempMin: { label: 'ต่ำสุดวันนี้', unit: '°C', icon: Thermometer },
-  tempMax: { label: 'สูงสุดวันนี้', unit: '°C', icon: Thermometer },
+  tempMin: { label: 'ต่ำสุดวันนี้', unit: '°C', icon: ThermometerSnowflake },
+  tempMax: { label: 'สูงสุดวันนี้', unit: '°C', icon: ThermometerSun },
   wind: { label: 'ลมกระโชก', unit: 'กม./ชม.', icon: Wind },
   pm25: { label: 'PM2.5 เฉลี่ย 24 ชม.', unit: 'µg/m³', icon: Gauge },
   pmHour: { label: 'PM2.5 รายชั่วโมง', unit: 'µg/m³', icon: Gauge },
