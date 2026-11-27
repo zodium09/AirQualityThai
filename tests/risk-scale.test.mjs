@@ -15,8 +15,14 @@ test('rain and air require the correct accumulation period', () => {
   assert.equal(riskLevel('pm25', 80, { hours: 24 }).tone, 'danger');
 });
 test('temperature and UV boundaries include both hot and cold extremes', () => {
+  assert.equal(riskLevel('temperature', 25).tone, 'low');
+  assert.equal(riskLevel('temperature', 30).tone, 'watch');
+  assert.equal(riskLevel('temperature', 34).tone, 'watch');
+  assert.equal(riskLevel('temperature', 34).label, 'ค่อนข้างร้อน');
+  assert.equal(riskLevel('temperature', 35).tone, 'high');
   assert.equal(riskLevel('temperature', 35).label, 'ร้อน');
   assert.equal(riskLevel('temperature', 39.9).label, 'ร้อน');
+  assert.equal(riskLevel('temperature', 40).tone, 'danger');
   assert.equal(riskLevel('temperature', 40).label, 'ร้อนจัด');
   assert.equal(riskLevel('temperature', 8).label, 'หนาว');
   assert.equal(riskLevel('uv', 11).label, 'สูงจัด');

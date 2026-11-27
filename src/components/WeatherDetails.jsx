@@ -1,19 +1,17 @@
-import { createElement, useContext, useState } from 'react';
-import { ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, ChevronDown, Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudMoon, CloudRain, CloudSun, Droplets, Eye, Gauge, Info, Monitor, Moon, RefreshCw, Snowflake, Sparkles, Sun, Sunrise, Sunset, Thermometer, Umbrella, Wind } from 'lucide-react';
+import { createElement, useContext, useMemo, useState } from 'react';
+import { ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, BarChart3, ChevronDown, Cloud, CloudRain, Droplets, Eye, Flame, Gauge, Info, Monitor, RefreshCw, Snowflake, Sparkles, Sun, Sunrise, Sunset, Thermometer, Umbrella, Wind } from 'lucide-react';
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Link } from 'react-router-dom';
 import { WeatherContext } from '../context/WeatherContext';
 import { BANGKOK, displayValue as value, finiteOrNull, getWeatherVisual, thaiTime, thaiWindDirection, weatherDate, sumHourlyPrecipitation } from '../utils/weatherData';
+import AnimatedWeatherIcon from './AnimatedWeatherIcon';
 import RiskValue, { RiskLegend } from './RiskValue';
 import WeatherTimeline from './WeatherTimeline';
 import RainNowcast from './RainNowcast';
 
-const icons = { sun: Sun, moon: Moon, cloud: Cloud, partly: CloudSun, cloudMoon: CloudMoon, rain: CloudRain, drizzle: CloudDrizzle, storm: CloudLightning, fog: CloudFog, snow: Snowflake, unknown: Cloud };
 const dateLabel = date => new Intl.DateTimeFormat('th-TH', { timeZone: BANGKOK, weekday: 'short', day: 'numeric', month: 'short' }).format(weatherDate(date));
 const dateKey = date => new Intl.DateTimeFormat('en-CA', { timeZone: BANGKOK, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
-function WeatherIcon({ code, isDay = true, size = 28 }) {
-  const visual = getWeatherVisual(code, isDay);
-  return createElement(icons[visual.icon], { size, strokeWidth: 1.8, 'aria-hidden': true, className: `wx-icon wx-icon--${visual.icon}` });
-}
+const cleanProvince = name => String(name || '').replace(/^จังหวัด/, '').trim();
 function Reading({ icon: Icon, label, reading, detail, metric, number, unit, hours, stale, divisor, tone = 'sky' }) {
   return <div className={`wx-reading wx-reading--${tone}`}>
     <span className="wx-reading-icon" aria-hidden="true">{createElement(Icon, { size: 18 })}</span>
@@ -42,12 +40,37 @@ export default function WeatherDetails({ forecast, loading, location, now, onRef
   const airStale = forecast?.airStale || !airTime || now - weatherDate(airTime).getTime() > 5400000;
   const visual = getWeatherVisual(c.weatherCode, c.isDay);
   const todayKey = dateKey(now), tomorrowKey = dateKey(now + 86400000);
-  const days = (daily.time || []).map((date, i) => ({ date, code: daily.weathercode?.[i], high: finiteOrNull(daily.temperature_2m_max?.[i]), low: finiteOrNull(daily.temperature_2m_min?.[i]), probability: finiteOrNull(daily.precipitation_probability_max?.[i]), mm: finiteOrNull(daily.precipitation_sum?.[i]) })).filter(day => day.date >= todayKey);
+  const days = (daily.time || []).map((date, i) => ({
+    date,
+    shortLabel: date === todayKey ? 'วันนี้' : date === tomorrowKey ? 'พรุ่งนี้' : dateLabel(date).split(' ')[0],
+    code: daily.weathercode?.[i],
+    high: finiteOrNull(daily.temperature_2m_max?.[i]),
+    low: finiteOrNull(daily.temperature_2m_min?.[i]),
+    probability: finiteOrNull(daily.precipitation_probability_max?.[i]),
+    mm: finiteOrNull(daily.precipitation_sum?.[i]),
+  })).filter(day => day.date >= todayKey);
   const today = days.find(day => day.date === todayKey);
   const temperatures = days.flatMap(day => [day.high, day.low]).filter(v => v !== null);
   const low = temperatures.length ? Math.min(...temperatures) : 0;
   const range = Math.max(1, (temperatures.length ? Math.max(...temperatures) : 1) - low);
-  const knownProvinces = stations.filter(station => finiteOrNull(stationTemps[station.stationID]?.temp) !== null).length;
+  const nationalSnapshot = useMemo(() => {
+    const temps = [];
+    const pms = [];
+    for (const station of stations || []) {
+      const tempVal = finiteOrNull(stationTemps[station.stationID]?.temp);
+      if (tempVal !== null) temps.push({ name: cleanProvince(station.areaTH), value: tempVal });
+      const pmVal = station.pm25ValidHours24h >= 24 ? finiteOrNull(station.pm25Average24h) : null;
+      if (pmVal !== null) pms.push({ name: cleanProvince(station.areaTH), value: pmVal });
+    }
+    temps.sort((a, b) => b.value - a.value);
+    pms.sort((a, b) => b.value - a.value);
+    return {
+      knownProvinces: temps.length,
+      hottest: temps[0] || null,
+      coolest: temps.length ? temps[temps.length - 1] : null,
+      dustiest: pms[0] || null,
+    };
+  }, [stations, stationTemps]);
   const windowStart = Math.ceil(now / 3600000) * 3600000, windowEnd = windowStart + 3 * 3600000;
   const nextRainMm = sumHourlyPrecipitation(forecast?.hourly || {}, windowStart, windowEnd);
   const adviceInfo = stale ? { text: 'ข้อมูลเดิม โปรดเช็กเวลา', tone: 'stale', icon: Info }
@@ -55,9 +78,10 @@ export default function WeatherDetails({ forecast, loading, location, now, onRef
       : today?.mm !== null && today?.mm > 35 ? { text: 'พยากรณ์ฝนวันนี้ค่อนข้างมาก เผื่อเวลาเดินทาง', tone: 'rain', icon: CloudRain }
         : finiteOrNull(c.pm25Average24h) !== null && !airStale && c.pm25Average24h > 37.5 ? { text: 'ค่าฝุ่น PM2.5 เฉลี่ย 24 ชม. สูง พิจารณาสวมหน้ากาก', tone: 'air', icon: Wind }
           : finiteOrNull(c.temp) !== null && c.temp >= 35 ? { text: 'อากาศร้อน วางแผนช่วงกลางวัน', tone: 'heat', icon: Sun }
-            : finiteOrNull(c.temp) !== null && c.temp < 16 ? { text: 'อากาศหนาว เตรียมเสื้อกันหนาว', tone: 'cool', icon: Snowflake }
-              : finiteOrNull(c.windGust) !== null && c.windGust >= 40 ? { text: 'มีลมกระโชกแรง ระมัดระวังกลางแจ้ง', tone: 'wind', icon: Wind }
-                : { text: 'เช็กอากาศก่อนออกเดินทาง', tone: 'clear', icon: Sparkles };
+            : finiteOrNull(c.temp) !== null && c.temp >= 30 ? { text: 'อากาศค่อนข้างร้อน ดื่มน้ำให้เพียงพอ', tone: 'heat', icon: Sun }
+              : finiteOrNull(c.temp) !== null && c.temp < 16 ? { text: 'อากาศหนาว เตรียมเสื้อกันหนาว', tone: 'cool', icon: Snowflake }
+                : finiteOrNull(c.windGust) !== null && c.windGust >= 40 ? { text: 'มีลมกระโชกแรง ระมัดระวังกลางแจ้ง', tone: 'wind', icon: Wind }
+                  : { text: 'เช็กอากาศก่อนออกเดินทาง', tone: 'clear', icon: Sparkles };
   const pmMarker = !airStale ? pm25ScalePosition(c.pm25Average24h) : null;
 
   if (!forecast) return <section className="wx-panel wx-unavailable" aria-live="polite">{loading ? <RefreshCw className="is-spinning" size={34} /> : <Cloud size={42} />}<h2>{loading ? 'กำลังอ่านท้องฟ้าของคุณ' : 'ยังไม่มีข้อมูลอากาศของพื้นที่นี้'}</h2><p>{loading ? 'กำลังเชื่อมต่อพยากรณ์อากาศและคุณภาพอากาศ' : 'เมื่อเชื่อมต่อได้ จะแสดงค่าพยากรณ์พร้อมเวลาของข้อมูล'}</p>{!loading && <button className="wx-button" type="button" onClick={onRefresh}><RefreshCw size={17} /> ลองอีกครั้ง</button>}</section>;
@@ -75,7 +99,7 @@ export default function WeatherDetails({ forecast, loading, location, now, onRef
             <p className="wx-feels-pill">รู้สึกเหมือน <RiskValue metric="apparent" value={c.feelsLike} unit="°" stale={stale} /> · <RiskValue metric="temperature" value={c.temp} stale={stale} label className="risk-label-only" /></p>
           </div>
           <div className="wx-current-icon">
-            <div className="wx-current-icon-ring"><WeatherIcon code={c.weatherCode} isDay={c.isDay} size={64} /></div>
+            <div className="wx-current-icon-ring"><AnimatedWeatherIcon code={c.weatherCode} isDay={c.isDay} size={82} /></div>
             <span>{c.isDay ? 'เวลากลางวัน' : 'เวลากลางคืน'}</span>
           </div>
         </div>
@@ -129,11 +153,35 @@ export default function WeatherDetails({ forecast, loading, location, now, onRef
     <div className="wx-lower-grid">
       <section className="wx-panel wx-weekly" aria-labelledby="weekly-title">
         <div className="wx-section-head">
-          <div><h2 id="weekly-title">พยากรณ์ 7 วัน</h2><p>ต่ำสุด–สูงสุด · ฝนสะสมแต่ละวัน 00:00–24:00 น.</p></div>
+          <div><h2 id="weekly-title">พยากรณ์ 7 วัน</h2><p>แนวโน้มอุณหภูมิต่ำสุด–สูงสุด · ฝนสะสมแต่ละวัน 00:00–24:00 น.</p></div>
           <span className="wx-head-badge wx-head-badge--warm" aria-hidden="true"><Thermometer size={20} /></span>
         </div>
+        {days.length > 1 && (
+          <div className="wx-weekly-trend">
+            <div className="wx-weekly-trend__legend" aria-hidden="true">
+              <span className="wx-trend-dot wx-trend-dot--max"><i /> สูงสุด (°C)</span>
+              <span className="wx-trend-dot wx-trend-dot--min"><i /> ต่ำสุด (°C)</span>
+            </div>
+            <div className="wx-weekly-chart" role="img" aria-label="กราฟแนวโน้มอุณหภูมิต่ำสุดและสูงสุด 7 วัน">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={days} margin={{ top: 8, right: 12, bottom: 0, left: -18 }}>
+                  <CartesianGrid vertical={false} stroke="var(--line)" strokeDasharray="3 5" />
+                  <XAxis dataKey="shortLabel" axisLine={false} tickLine={false} tick={{ fill: 'var(--muted)', fontSize: 11 }} />
+                  <YAxis domain={['auto', 'auto']} unit="°" axisLine={false} tickLine={false} tick={{ fill: 'var(--muted)', fontSize: 11 }} />
+                  <Tooltip
+                    contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, color: 'var(--ink)' }}
+                    labelStyle={{ color: 'var(--ink)', fontWeight: 700 }}
+                    formatter={(v, name) => [value(v, '°C', 1), name === 'high' ? 'สูงสุด' : 'ต่ำสุด']}
+                  />
+                  <Line type="monotone" dataKey="high" stroke="#ea580c" strokeWidth={2.6} dot={{ r: 3.5, fill: '#ea580c', strokeWidth: 0 }} activeDot={{ r: 5 }} isAnimationActive={false} connectNulls={false} />
+                  <Line type="monotone" dataKey="low" stroke="#0284c7" strokeWidth={2.6} dot={{ r: 3.5, fill: '#0284c7', strokeWidth: 0 }} activeDot={{ r: 5 }} isAnimationActive={false} connectNulls={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
         <div className="wx-day wx-day-head" aria-hidden="true"><span>วัน</span><span /><span className="wx-day-rain">ฝน</span><span className="wx-day-low">ต่ำสุด</span><span className="wx-day-range-col" /><span className="wx-day-high">สูงสุด</span></div>
-        <div className="wx-day-list">{days.map(day => <div className={`wx-day${day.date === todayKey ? ' wx-day--today' : ''}`} key={day.date}><div><strong>{day.date === todayKey ? 'วันนี้' : day.date === tomorrowKey ? 'พรุ่งนี้' : dateLabel(day.date).split(' ')[0]}</strong><small>{dateLabel(day.date).split(' ').slice(1).join(' ')}</small></div><WeatherIcon code={day.code} /><span className="wx-day-rain"><RiskValue metric="rain" value={day.mm} unit=" มม." hours={24} stale={stale} /><small>โอกาส {value(day.probability, '%')}</small></span><RiskValue className="wx-day-low wx-extreme-min" metric="temperature" value={day.low} unit="°" stale={stale} /><span className="wx-temp-range" aria-hidden="true">{day.low !== null && day.high !== null && <i style={{ left: `${(day.low - low) / range * 100}%`, width: `${Math.max(4, (day.high - day.low) / range * 100)}%` }} />}</span><RiskValue className="wx-day-high wx-extreme-max" metric="temperature" value={day.high} unit="°" stale={stale} /></div>)}</div>
+        <div className="wx-day-list">{days.map(day => <div className={`wx-day${day.date === todayKey ? ' wx-day--today' : ''}`} key={day.date}><div><strong>{day.shortLabel}</strong><small>{dateLabel(day.date).split(' ').slice(1).join(' ')}</small></div><AnimatedWeatherIcon code={day.code} isDay size={30} /><span className="wx-day-rain"><RiskValue metric="rain" value={day.mm} unit=" มม." hours={24} stale={stale} /><small>โอกาส {value(day.probability, '%')}</small></span><RiskValue className="wx-day-low wx-extreme-min" metric="temperature" value={day.low} unit="°" stale={stale} /><span className="wx-temp-range" aria-hidden="true">{day.low !== null && day.high !== null && <i style={{ left: `${(day.low - low) / range * 100}%`, width: `${Math.max(4, (day.high - day.low) / range * 100)}%` }} />}</span><RiskValue className="wx-day-high wx-extreme-max" metric="temperature" value={day.high} unit="°" stale={stale} /></div>)}</div>
         <p className="wx-footnote">พยากรณ์อาจเปลี่ยนแปลง โดยเฉพาะวันที่อยู่ไกลออกไป</p>
       </section>
       <aside className="wx-tools">
@@ -164,8 +212,18 @@ export default function WeatherDetails({ forecast, loading, location, now, onRef
         <section className="wx-monitor-promo">
           <span className="wx-monitor-promo__icon" aria-hidden="true"><Monitor size={22} /></span>
           <h2>มองภาพรวมทั้งประเทศ</h2>
-          <p>{weatherMeta.source === 'unavailable' ? 'ข้อมูลส่วนกลางยังไม่พร้อม ดูแผนที่และสถานะแต่ละจังหวัดได้' : `${knownProvinces} จุดอ้างอิงจังหวัดมีค่าอุณหภูมิ · ${weatherMeta.stale ? 'ข้อมูลเดิม' : 'อัปเดต'} ${thaiTime(lastUpdated)}`}</p>
-          <Link className="wx-button wx-monitor-promo__cta" to="/map?monitor=1">เปิดมอนิเตอร์ <ArrowUpRight size={17} aria-hidden="true" /></Link>
+          <p>{weatherMeta.source === 'unavailable' ? 'ข้อมูลส่วนกลางยังไม่พร้อม ดูแผนที่และสถานะแต่ละจังหวัดได้' : `${nationalSnapshot.knownProvinces} จุดอ้างอิงจังหวัดมีค่าอุณหภูมิ · ${weatherMeta.stale ? 'ข้อมูลเดิม' : 'อัปเดต'} ${thaiTime(lastUpdated)}`}</p>
+          {!weatherMeta.stale && weatherMeta.source !== 'unavailable' && nationalSnapshot.hottest && (
+            <div className="wx-national-highlights">
+              <div><small><Flame size={13} aria-hidden="true" /> ร้อนสุด</small><strong>{nationalSnapshot.hottest.name} · {value(nationalSnapshot.hottest.value, '°C', 1)}</strong></div>
+              {nationalSnapshot.coolest && <div><small><Snowflake size={13} aria-hidden="true" /> เย็นสุด</small><strong>{nationalSnapshot.coolest.name} · {value(nationalSnapshot.coolest.value, '°C', 1)}</strong></div>}
+              {nationalSnapshot.dustiest && <div><small><Wind size={13} aria-hidden="true" /> ฝุ่น 24 ชม. สูงสุด</small><strong>{nationalSnapshot.dustiest.name} · {value(nationalSnapshot.dustiest.value, ' µg/m³', 1)}</strong></div>}
+            </div>
+          )}
+          <div className="wx-monitor-promo__actions">
+            <Link className="wx-button wx-monitor-promo__cta" to="/map?monitor=1">เปิดแผนที่มอนิเตอร์ <ArrowUpRight size={17} aria-hidden="true" /></Link>
+            <Link className="wx-button wx-monitor-promo__ghost" to={`/stats?province=${encodeURIComponent(location.mountainId ? location.label : location.province)}`}><BarChart3 size={16} aria-hidden="true" /> กราฟสถิติ</Link>
+          </div>
         </section>
       </aside>
     </div>

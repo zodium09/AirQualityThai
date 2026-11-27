@@ -13,8 +13,9 @@ export function riskLevel(metric, input, { stale = false, hours = null } = {}) {
     if (value < 16) return result('cool', 'หนาว');
     if (value < 23) return result('info', 'เย็น');
     if (value >= 40) return result('danger', 'ร้อนจัด');
-    if (value >= 35) return result('watch', 'ร้อน');
-    return result('low', 'ช่วง 23–ต่ำกว่า 35°C');
+    if (value >= 35) return result('high', 'ร้อน');
+    if (value >= 30) return result('watch', 'ค่อนข้างร้อน');
+    return result('low', 'สบาย · 23–ต่ำกว่า 30°C');
   }
   // Apparent temperature is not the Thai heat index: no borrowed health cutoffs.
   if (metric === 'apparent') return result('info', 'อุณหภูมิที่รู้สึก · ไม่ใช่ดัชนีความร้อน');

@@ -171,8 +171,8 @@ export default function MapPage() {
     });
   };
 
-  const legendValues = metric === 'pm25' ? [15, 25, 37.5, 75, 76] : metric.startsWith('temp') ? [7, 15, 22, 30, 35, 40] : metric === 'rain' ? [0, 10, 35, 90, 91] : metric === 'pmHour' ? [0] : [10, 25, 45, 65];
-  const legendLabels = metric === 'pm25' ? ['≤15', '>15–25', '>25–37.5', '>37.5–75', '>75'] : metric.startsWith('temp') ? ['<8', '8–<16', '16–<23', '23–<35', '35–<40', '≥40'] : metric === 'rain' ? ['<0.1', '0.1–10', '>10–35', '>35–90', '>90'] : metric === 'pmHour' ? ['รายชั่วโมง · ไม่จัดระดับ AQI'] : ['<20', '20–<40', '40–<62', '≥62'];
+  const legendValues = metric === 'pm25' ? [15, 25, 37.5, 75, 76] : metric.startsWith('temp') ? [7, 15, 22, 27, 32, 37, 40] : metric === 'rain' ? [0, 10, 35, 90, 91] : metric === 'pmHour' ? [0] : [10, 25, 45, 65];
+  const legendLabels = metric === 'pm25' ? ['≤15', '>15–25', '>25–37.5', '>37.5–75', '>75'] : metric.startsWith('temp') ? ['<8', '8–<16', '16–<23', '23–<30', '30–<35', '35–<40', '≥40'] : metric === 'rain' ? ['<0.1', '0.1–10', '>10–35', '>35–90', '>90'] : metric === 'pmHour' ? ['รายชั่วโมง · ไม่จัดระดับ AQI'] : ['<20', '20–<40', '40–<62', '≥62'];
   const exportCsv = () => {
     const quote = text => `"${String(text ?? '').replace(/"/g, '""').replace(/^[=+@-]/, "'")}"`;
     const lines = [['จังหวัด (จุดอ้างอิง)', 'ละติจูด', 'ลองจิจูด', meta.label, 'หน่วย', 'เวลาตัวชี้วัด', 'แหล่งข้อมูล', 'รูปแบบเวลา', 'ระยะเวลาที่ค่าแทน (ชั่วโมง)', 'สถานะ'], ...ranked.map(row => [row.name, row.station.lat, row.station.long, row.value, meta.unit, row.validAt || '', row.source, row.periodLabel, row.hours ?? '', row.value === null ? 'ไม่มีข้อมูล' : row.stale ? 'ข้อมูลเดิม' : 'มีข้อมูลตามเวลา'])];

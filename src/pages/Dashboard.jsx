@@ -6,6 +6,7 @@ import { useWeatherData } from '../hooks/useWeatherData';
 import { provinces77 } from '../provinces77';
 import { BANGKOK, displayValue as value, finiteOrNull, weatherDate } from '../utils/weatherData';
 import WeatherDetails from '../components/WeatherDetails';
+import DashboardNewsCard from '../components/DashboardNewsCard';
 import StationObservations from '../components/StationObservations';
 import MountainOutlook from '../components/MountainOutlook';
 import { mountainPlaces } from '../data/mountainPlaces';
@@ -162,6 +163,7 @@ export default function Dashboard() {
     {weatherError && <div className="wx-message" role="status"><Info size={18} aria-hidden="true" />{weatherError}</div>}
     {place && <p className="wx-place-note"><Mountain size={18} /> {place.name} · สูง {value(place.elevation, ' ม.')} · <a href={place.sourceUrl} target="_blank" rel="noreferrer">ที่มาพิกัดและความสูง</a> · พยากรณ์จากแบบจำลองตามความสูง</p>}
     <WeatherDetails forecast={matchesPlace ? weatherData : null} loading={loadingWeather} location={location} now={now} onRefresh={refresh} onUseLocation={useLocation} />
+    <DashboardNewsCard now={now} />
     <MountainOutlook onChoose={chooseMountain} />
     <StationObservations key={location.lat + ':' + location.lon} lat={location.lat} lon={location.lon} now={now} />
     <footer className="wx-sources"><span className="wx-sources-icon" aria-hidden="true"><ShieldCheck size={20} /></span><div><strong>รู้ที่มา วางแผนได้มั่นใจขึ้น</strong><p>พยากรณ์อากาศ: <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> · ฝุ่น: <a href="https://atmosphere.copernicus.eu/" target="_blank" rel="noreferrer">CAMS</a> ผ่าน Open-Meteo · พิกัดอำเภอ: OpenStreetMap</p><p>อัปเดตอัตโนมัติทุก 10 นาทีเมื่อเปิดหน้านี้ · ค่าที่ไม่มีข้อมูลแสดงเป็น — · <Link to="/news">ดูประกาศจากหน่วยงาน</Link></p></div></footer>

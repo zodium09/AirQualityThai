@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ArrowDown, ArrowUp, BarChart3, CloudRain, Download, Gauge, LoaderCircle, ThermometerSnowflake, ThermometerSun, TrendingDown, TrendingUp } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { provinces77 } from '../provinces77';
@@ -162,15 +162,27 @@ export default function StatsPage() {
                   <div className="section-heading"><div><span className="section-label">แนวโน้ม{cleanName(province)}</span><h2>{config.label}ย้อนหลัง {period === 365 ? '1 ปี' : `${period} วัน`}</h2></div><span className="section-note">เส้นประคือค่าเฉลี่ย {analysis.average ?? '–'} {config.unit}</span></div>
                   <div className="stats-chart" role="img" aria-label={`กราฟ${config.label}ย้อนหลัง`}>
                     <ResponsiveContainer height="100%" width="100%">
-                      <AreaChart data={analysis.chart} margin={{ top: 15, right: 10, left: -12, bottom: 0 }}>
-                        <defs><linearGradient id={`fill-${metric}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={config.color} stopOpacity={0.42} /><stop offset="100%" stopColor={config.color} stopOpacity={0.03} /></linearGradient></defs>
-                        <CartesianGrid stroke="var(--line)" strokeDasharray="3 5" vertical={false} />
-                        <XAxis axisLine={false} dataKey="label" minTickGap={34} tick={{ fill: 'var(--muted)', fontSize: 11 }} tickLine={false} />
-                        <YAxis axisLine={false} tick={{ fill: 'var(--muted)', fontSize: 11 }} tickLine={false} unit={config.unit === '°C' ? '°' : ''} />
-                        <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, color: 'var(--ink)' }} labelStyle={{ color: 'var(--ink)', fontWeight: 600 }} itemStyle={{ color: 'var(--primary-hover)' }} formatter={(value) => [displayValue(value, ` ${config.unit}`, 1), config.label]} labelFormatter={(label) => `วันที่ ${label}`} />
-                        {analysis.average !== null && <ReferenceLine stroke={config.color} strokeDasharray="5 5" y={analysis.average} />}
-                        <Area dataKey={metric} fill={`url(#fill-${metric})`} isAnimationActive={false} connectNulls={false} stroke={config.color} strokeWidth={2.5} type="monotone" />
-                      </AreaChart>
+                      {metric === 'rain' ? (
+                        <BarChart data={analysis.chart} margin={{ top: 15, right: 10, left: -12, bottom: 0 }}>
+                          <defs><linearGradient id="fill-rain" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.95} /><stop offset="100%" stopColor="#0284c7" stopOpacity={0.65} /></linearGradient></defs>
+                          <CartesianGrid stroke="var(--line)" strokeDasharray="3 5" vertical={false} />
+                          <XAxis axisLine={false} dataKey="label" minTickGap={34} tick={{ fill: 'var(--muted)', fontSize: 11 }} tickLine={false} />
+                          <YAxis axisLine={false} tick={{ fill: 'var(--muted)', fontSize: 11 }} tickLine={false} />
+                          <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, color: 'var(--ink)' }} labelStyle={{ color: 'var(--ink)', fontWeight: 600 }} itemStyle={{ color: 'var(--primary-hover)' }} formatter={(value) => [displayValue(value, ` ${config.unit}`, 1), config.label]} labelFormatter={(label) => `วันที่ ${label}`} />
+                          {analysis.average !== null && <ReferenceLine stroke={config.color} strokeDasharray="5 5" y={analysis.average} />}
+                          <Bar dataKey={metric} fill="url(#fill-rain)" isAnimationActive={false} maxBarSize={18} radius={[6, 6, 1, 1]} />
+                        </BarChart>
+                      ) : (
+                        <AreaChart data={analysis.chart} margin={{ top: 15, right: 10, left: -12, bottom: 0 }}>
+                          <defs><linearGradient id={`fill-${metric}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={config.color} stopOpacity={0.42} /><stop offset="100%" stopColor={config.color} stopOpacity={0.03} /></linearGradient></defs>
+                          <CartesianGrid stroke="var(--line)" strokeDasharray="3 5" vertical={false} />
+                          <XAxis axisLine={false} dataKey="label" minTickGap={34} tick={{ fill: 'var(--muted)', fontSize: 11 }} tickLine={false} />
+                          <YAxis axisLine={false} tick={{ fill: 'var(--muted)', fontSize: 11 }} tickLine={false} unit={config.unit === '°C' ? '°' : ''} />
+                          <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, color: 'var(--ink)' }} labelStyle={{ color: 'var(--ink)', fontWeight: 600 }} itemStyle={{ color: 'var(--primary-hover)' }} formatter={(value) => [displayValue(value, ` ${config.unit}`, 1), config.label]} labelFormatter={(label) => `วันที่ ${label}`} />
+                          {analysis.average !== null && <ReferenceLine stroke={config.color} strokeDasharray="5 5" y={analysis.average} />}
+                          <Area dataKey={metric} fill={`url(#fill-${metric})`} isAnimationActive={false} connectNulls={false} stroke={config.color} strokeWidth={2.5} type="monotone" />
+                        </AreaChart>
+                      )}
                     </ResponsiveContainer>
                   </div>
                   <p className="stats-source">ข้อมูลอากาศย้อนหลังจากแบบจำลอง Open-Meteo Best Match และ PM2.5 จาก CAMS · ไม่ใช่ผลตรวจวัดสถานี · ค่าเฉลี่ยฝุ่นรายวันใช้เฉพาะวันที่ครบ 24 ชั่วโมง · ฝุ่นย้อนหลังสูงสุด 92 วัน อากาศย้อนหลัง 1 ปี</p>
