@@ -1,5 +1,5 @@
 import { createElement, useContext } from 'react';
-import { BarChart3, BellRing, House, Map, Moon, Sun, Wind } from 'lucide-react';
+import { BarChart3, BellRing, CloudSun, House, Map, Moon, Sun } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { WeatherContext } from '../context/WeatherContext';
 import InstallPrompt from './InstallPrompt';
@@ -20,7 +20,7 @@ function NavigationLinks({ mobile = false }) {
       key={to}
       to={to}
     >
-      {createElement(Icon, { 'aria-hidden': true, size: mobile ? 21 : 17, strokeWidth: 2.2 })}
+      {createElement(Icon, { 'aria-hidden': true, size: mobile ? 20 : 17, strokeWidth: 2.2 })}
       <span>{label}</span>
     </NavLink>
   ));
@@ -36,7 +36,7 @@ export default function Layout() {
       <header className="topbar">
         <div className="topbar__inner">
           <NavLink aria-label="อากาศไทย หน้าหลัก" className="brand" to="/">
-            <span aria-hidden="true" className="brand__mark"><Wind size={22} strokeWidth={2.4} /></span>
+            <span aria-hidden="true" className="brand__mark"><CloudSun size={22} strokeWidth={2.2} /></span>
             <span className="brand__copy">
               <strong>อากาศไทย</strong>
               <small>รู้ก่อน วางแผนได้</small>
@@ -44,18 +44,23 @@ export default function Layout() {
           </NavLink>
 
           <nav aria-label="เมนูหลัก" className="top-nav">
-            <NavigationLinks />
+            <div className="top-nav__pill">
+              <NavigationLinks />
+            </div>
           </nav>
 
-          <button
-            aria-label={darkMode ? 'เปลี่ยนเป็นโหมดสว่าง' : 'เปลี่ยนเป็นโหมดมืด'}
-            className="icon-button"
-            onClick={() => setDarkMode(!darkMode)}
-            title={darkMode ? 'โหมดสว่าง' : 'โหมดมืด'}
-            type="button"
-          >
-            {darkMode ? <Sun aria-hidden="true" size={19} /> : <Moon aria-hidden="true" size={19} />}
-          </button>
+          <div className="topbar__actions">
+            <button
+              aria-label={darkMode ? 'เปลี่ยนเป็นโหมดสว่าง' : 'เปลี่ยนเป็นโหมดมืด'}
+              className="icon-button theme-toggle"
+              onClick={() => setDarkMode(!darkMode)}
+              title={darkMode ? 'โหมดสว่าง' : 'โหมดมืด'}
+              type="button"
+            >
+              {darkMode ? <Sun aria-hidden="true" size={18} /> : <Moon aria-hidden="true" size={18} />}
+              <span className="theme-toggle__label">{darkMode ? 'โหมดสว่าง' : 'โหมดมืด'}</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -66,8 +71,8 @@ export default function Layout() {
       <nav aria-label="เมนูหลักบนมือถือ" className="mobile-nav">
         <NavigationLinks mobile />
         <button className="mobile-nav__link mobile-nav__theme" aria-label={darkMode ? 'เปลี่ยนเป็นโหมดสว่าง' : 'เปลี่ยนเป็นโหมดมืด'} onClick={() => setDarkMode(!darkMode)} type="button">
-          {darkMode ? <Sun aria-hidden="true" size={21} /> : <Moon aria-hidden="true" size={21} />}
-          <span>{darkMode ? 'โหมดสว่าง' : 'โหมดมืด'}</span>
+          {darkMode ? <Sun aria-hidden="true" size={20} /> : <Moon aria-hidden="true" size={20} />}
+          <span>{darkMode ? 'สว่าง' : 'โหมดมืด'}</span>
         </button>
       </nav>
 

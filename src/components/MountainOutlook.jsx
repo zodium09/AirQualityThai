@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Mountain } from 'lucide-react';
+import { ChevronDown, Mountain } from 'lucide-react';
 import { thaiTime, isStaleTime } from '../utils/weatherData';
 import { mountainPlaces } from '../data/mountainPlaces';
 
@@ -18,7 +18,7 @@ export default function MountainOutlook({ onChoose }) {
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [open]);
-  return <details className="wx-mountain-outlook wx-panel" open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary><Mountain size={21} aria-hidden="true" /> อากาศบนดอยและยอดภู</summary>
+  return <details className="wx-mountain-outlook wx-panel" open={open} onToggle={event => setOpen(event.currentTarget.open)}><summary><span className="wx-mountain-summary-main"><span className="wx-head-badge wx-head-badge--violet" aria-hidden="true"><Mountain size={19} /></span><span><strong>อากาศบนดอยและยอดภู</strong><small>พยากรณ์รายจุดตามความสูง และประกาศภูเขารายภาค</small></span></span><ChevronDown className="disclosure-chevron" size={21} aria-hidden="true" /></summary>
     <div className="mountain-places">{mountainPlaces.map(place => <button type="button" className="wx-button wx-button--quiet" onClick={() => { onChoose(place.id); window.scrollTo({ top: 0, behavior: 'auto' }); }} key={place.id}>{place.name} · {place.elevation.toLocaleString('th-TH')} ม.</button>)}</div>
     <p>เลือกสถานที่เพื่อดูพยากรณ์ตามพิกัดและความสูง ส่วนข้อความด้านล่างเป็นภาพรวมภูเขารายภาคจากกรมอุตุฯ</p>
     {loading ? <p role="status">กำลังตรวจประกาศภูมิภาค…</p> : data?.regions?.length ? <div className="mountain-regions">{data.regions.map(region => {

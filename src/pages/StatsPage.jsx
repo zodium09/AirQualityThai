@@ -9,11 +9,11 @@ import { displayValue, finiteOrNull, weatherDate, BANGKOK } from '../utils/weath
 
 const LOCATION_KEY = 'air4thai.selectedProvince';
 const metrics = {
-  rain: { label: 'ปริมาณฝน', unit: 'มม.', icon: CloudRain, color: '#2788f5', aggregate: 'sum' },
+  rain: { label: 'ปริมาณฝน', unit: 'มม.', icon: CloudRain, color: '#0ea5e9', aggregate: 'sum' },
   tempMin: { label: 'อุณหภูมิต่ำสุด', unit: '°C', icon: ThermometerSnowflake, color: '#0284c7', aggregate: 'average' },
-  tempMax: { label: 'อุณหภูมิสูงสุด', unit: '°C', icon: ThermometerSun, color: '#ea580c', aggregate: 'average' },
-  heatMax: { label: 'อุณหภูมิที่รู้สึก', unit: '°C', icon: ThermometerSun, color: '#f04f70', aggregate: 'average' },
-  pm25: { label: 'ฝุ่น PM2.5', unit: 'µg/m³', icon: Gauge, color: '#7357dd', aggregate: 'average' },
+  tempMax: { label: 'อุณหภูมิสูงสุด', unit: '°C', icon: ThermometerSun, color: '#f97316', aggregate: 'average' },
+  heatMax: { label: 'อุณหภูมิที่รู้สึก', unit: '°C', icon: ThermometerSun, color: '#f43f5e', aggregate: 'average' },
+  pm25: { label: 'ฝุ่น PM2.5', unit: 'µg/m³', icon: Gauge, color: '#7c3aed', aggregate: 'average' },
 };
 
 const periods = [{ value: 30, label: '30 วัน' }, { value: 90, label: '90 วัน' }, { value: 365, label: '1 ปี' }];
@@ -154,7 +154,7 @@ export default function StatsPage() {
               <>
                 <section className="stats-kpis" aria-label="สรุปสถิติ">
                   <article className="stat-kpi stat-kpi--primary"><span>{metric === 'rain' ? 'รวมฝนเฉพาะวันที่มีข้อมูล' : `เฉลี่ย${config.label}รายวัน`}</span><strong>{analysis.current ?? '–'} <small>{config.unit}</small></strong><p>{analysis.days} วันที่มีข้อมูล / {period} วัน</p></article>
-                  <article className="stat-kpi"><span>เทียบช่วงก่อนหน้า</span><strong className="stat-change">{analysis.difference === null ? '–' : <><span className="stat-change__direction">{analysis.difference === 0 ? 'เท่าเดิม' : changeUp ? 'เพิ่มขึ้น' : 'ลดลง'}</span>{analysis.difference !== 0 && <ChangeIcon aria-hidden="true" size={20} />} {Math.abs(analysis.difference)} <small>{config.unit}</small></>}</strong><p>{analysis.previous === null ? 'ข้อมูลช่วงก่อนหน้าไม่ครบ' : `ช่วงก่อนหน้า ${analysis.previous} ${config.unit}`}</p></article>
+                  <article className="stat-kpi"><span>เทียบช่วงก่อนหน้า</span><strong className="stat-change">{analysis.difference === null ? '–' : <><span className={`stat-change__direction ${analysis.difference === 0 ? 'is-flat' : changeUp ? 'is-up' : 'is-down'}`}>{analysis.difference === 0 ? 'เท่าเดิม' : changeUp ? 'เพิ่มขึ้น' : 'ลดลง'}</span><span className="stat-change__value">{analysis.difference !== 0 && <ChangeIcon aria-hidden="true" size={20} />} {Math.abs(analysis.difference)} <small>{config.unit}</small></span></>}</strong><p>{analysis.previous === null ? 'ข้อมูลช่วงก่อนหน้าไม่ครบ' : `ช่วงก่อนหน้า ${analysis.previous} ${config.unit}`}</p></article>
                   <article className="stat-kpi"><span>ค่าเฉลี่ยรายวัน</span><strong>{analysis.average ?? '–'} <small>{config.unit}</small></strong><div className="stat-extremes"><span className="stat-extreme stat-extreme--max"><ArrowUp size={13} aria-hidden="true" /> สูงสุด <RiskValue className="wx-extreme-max" metric={metric.startsWith('temp') ? 'temperature' : metric === 'heatMax' ? 'apparent' : metric} value={analysis.max} hours={['rain', 'pm25'].includes(metric) ? 24 : null} />{analysis.maxDate ? ` (${formatShortDate(analysis.maxDate)})` : ''}</span><span className="stat-extreme stat-extreme--min"><ArrowDown size={13} aria-hidden="true" /> ต่ำสุด <RiskValue className="wx-extreme-min" metric={metric.startsWith('temp') ? 'temperature' : metric === 'heatMax' ? 'apparent' : metric} value={analysis.min} hours={['rain', 'pm25'].includes(metric) ? 24 : null} />{analysis.minDate ? ` (${formatShortDate(analysis.minDate)})` : ''}</span></div></article>
                 </section>
 

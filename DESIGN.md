@@ -1,18 +1,19 @@
 ---
 name: อากาศไทย
-description: Bright, readable Thai weather and national monitoring.
+description: Bright, vibrant, readable Thai weather and national monitoring (v2).
 colors:
-  bg: "#f3f8fe"
-  surface: "#fff"
-  surface-2: "#f0f7ff"
-  surface-3: "#deedfc"
-  ink: "#17344f"
-  ink-soft: "#435f78"
-  muted: "#587089"
-  line: "#dce8f4"
-  primary: "#1675df"
-  primary-hover: "#0c5ebc"
-  primary-soft: "#e7f2ff"
+  bg: "#eef7ff"
+  surface: "#ffffff"
+  surface-2: "#f1f8ff"
+  surface-3: "#dceeff"
+  ink: "#0f2942"
+  ink-soft: "#33506d"
+  muted: "#526e8a"
+  line: "#d4e8fb"
+  primary: "#0b74de"
+  primary-vivid: "#0ea5e9"
+  primary-hover: "#085cb5"
+  primary-soft: "#e6f4ff"
   focus: "oklch(65% 0.2 244)"
   warning: "oklch(62% 0.13 73)"
   warning-soft: "oklch(95% 0.045 78)"

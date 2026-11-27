@@ -1,3 +1,4 @@
+import { ChevronDown, Info } from 'lucide-react';
 import { formatRiskValue, riskLevel, riskSources } from '../utils/riskScale';
 
 export default function RiskValue({ value, metric, unit = '', digits = 1, stale = false, hours = null, label = false, className = '', divisor = 1 }) {
@@ -10,8 +11,8 @@ export default function RiskValue({ value, metric, unit = '', digits = 1, stale 
 
 export function RiskLegend() {
   return <details className="risk-legend">
-    <summary>สีตัวเลขบอกอะไร · ดูเกณฑ์และแหล่งอ้างอิง</summary>
-    <div className="risk-legend-swatches"><span className="risk-info">ฟ้า · ข้อมูล / ระดับต่ำ</span><span className="risk-low">เขียว · ระดับทั่วไป</span><span className="risk-watch">เหลืองเข้ม · เริ่มเฝ้าระวัง</span><span className="risk-high">ส้ม · ระดับสูง</span><span className="risk-danger">แดง · ระดับสูงมาก</span><span className="risk-extreme">ม่วง · ค่าสุดขั้ว</span><span className="risk-unknown">เทา · ข้อมูลเก่าหรือไม่พร้อม</span></div>
+    <summary><span className="risk-legend__title"><Info size={16} aria-hidden="true" /> สีตัวเลขบอกอะไร · ดูเกณฑ์และแหล่งอ้างอิง</span><ChevronDown className="disclosure-chevron" size={18} aria-hidden="true" /></summary>
+    <div className="risk-legend-swatches"><span className="risk-swatch risk-info"><i></i>ฟ้า · ข้อมูล / ระดับต่ำ</span><span className="risk-swatch risk-low"><i></i>เขียว · ระดับทั่วไป</span><span className="risk-swatch risk-watch"><i></i>เหลืองเข้ม · เริ่มเฝ้าระวัง</span><span className="risk-swatch risk-high"><i></i>ส้ม · ระดับสูง</span><span className="risk-swatch risk-danger"><i></i>แดง · ระดับสูงมาก</span><span className="risk-swatch risk-extreme"><i></i>ม่วง · ค่าสุดขั้ว</span><span className="risk-swatch risk-unknown"><i></i>เทา · ข้อมูลเก่าหรือไม่พร้อม</span></div>
     <p>แต่ละตัวแปรใช้เกณฑ์ต่างกัน อ่านคำกำกับพร้อมสีเสมอ สีไม่ใช่ประกาศเตือนภัยหรือการรับรองความปลอดภัย</p>
     <ul><li>อุณหภูมิ: ต่ำกว่า 8°C หนาวจัด · 8–ต่ำกว่า 16°C หนาว · 16–ต่ำกว่า 23°C เย็น · 35–ต่ำกว่า 40°C ร้อน · ตั้งแต่ 40°C ร้อนจัด — <a href={riskSources.weather} target="_blank" rel="noreferrer">เกณฑ์กรมอุตุฯ</a></li>
       <li>ค่าต่ำสุด–สูงสุดที่แสดงคู่กัน: ใช้สีฟ้า (↓) แทนค่าต่ำสุด และสีส้มอุ่น (↑) แทนค่าสูงสุด เพื่อให้แยกอ่านได้ชัดเจน โดยยังคงเน้นสีม่วงเมื่อหนาวจัด (&lt;8°C) สีแดงเมื่อร้อนจัด (≥40°C) และสีเทาเมื่อข้อมูลเก่าหรือไม่พร้อม</li>
